@@ -8,19 +8,19 @@ let package = Package(
     .macOS(.v12)
   ],
   products: [
-    .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
-    .library(name: "convstorelib", targets: ["convstorelib"])
+    .library(name: "SandboxSDK", targets: ["SandboxSDK"])
+   ,.library(name: "convstorelib", targets: ["convstorelib"])
   ],
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v14287a9/SandboxSDK.xcframework.zip",
-      checksum: "ae5c1a1c882586a4c3cc0c4568ccdf43953d041bc7f2677781ffa2c04eb362e6"
-    ),
-    .binaryTarget(
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-ve5de24f/SandboxSDK.xcframework.zip",
+      checksum: "3f40fd85902bbe8268d30572fca43afd129c3a0f50b4a46b8d0d20540f58ec94"
+    )
+   ,.binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v5d6a529/convstorelib.xcframework.zip",
-      checksum: "79b8f8c82686f7948295c957f332c025f0611e23b1c33552c37f1e17fff55fae"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-ve5de24f/convstorelib.xcframework.zip",
+      checksum: "d2df10250ef1bd6e85a4c2b2df241d25e23e478e7d5e5fae0ff2fe7e6da4d822"
     )
   ]
 )
