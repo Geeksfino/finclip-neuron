@@ -14,8 +14,8 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-sandbox/releases/download/sdk-v9a855e6/SandboxSDK.xcframework.zip",
-      checksum: "a6502f205b112a07bc0bcec6a530f278736ac62960f333392eb8ff80f89ab907"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vfae88b8/SandboxSDK.xcframework.zip",
+      checksum: "9f7117ec53f15b335df88d6c7c712ffe956764f9779c9d617ee96575baf81c86"
     )
   ]
 )
