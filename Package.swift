@@ -1,9 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// Distribution package for SandboxSDK binary XCFramework (iOS + macOS)
 let package = Package(
-  name: "SandboxSDK",
+  name: "finclip-neuron",
   platforms: [
     .iOS(.v14),
     .macOS(.v12)
@@ -14,8 +13,8 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vfae88b8/SandboxSDK.xcframework.zip",
-      checksum: "9f7117ec53f15b335df88d6c7c712ffe956764f9779c9d617ee96575baf81c86"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v14287a9/SandboxSDK.xcframework.zip",
+      checksum: "ae5c1a1c882586a4c3cc0c4568ccdf43953d041bc7f2677781ffa2c04eb362e6"
     )
   ]
 )
