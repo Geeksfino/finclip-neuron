@@ -14,13 +14,13 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v8186758/SandboxSDK.xcframework.zip",
-      checksum: "efa10b88fc9d46d67eedff2c8bf609de63b3c74bf8c27209db7d3129ba9c4734"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vf2d55f6/SandboxSDK.xcframework.zip",
+      checksum: "499a35ede6b7b934a79fef71d49e7ccd5258ebb6da7328a7daf8e4e0a1fa7d63"
     ),
     .binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-vfd89baa/convstorelib.xcframework.zip",
-      checksum: "3b90c5cc245240f13c522a0026c59965889ed600d33c6153f3fc568716e6f88b"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vf2d55f6/convstorelib.xcframework.zip",
+      checksum: "cc2d52872ba37b94d644603933192202be50e86cad3540d613cf5c2689493196"
     )
   ]
 )
