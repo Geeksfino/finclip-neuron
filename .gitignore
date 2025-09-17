@@ -64,4 +64,5 @@ fastlane/test_output/
 .dist/
 dist/
 build/
+.build/
 

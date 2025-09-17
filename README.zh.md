@@ -1,16 +1,16 @@
-# NeuronKit Developer Guide
+# NeuronKit 开发者指南
 
-NeuronKit is a Swift SDK that enables conversational AI agents in your iOS app. This guide shows how to integrate it into your project.
+NeuronKit 是一个 Swift SDK，可以在您的 iOS 应用中启用对话式 AI 代理。本指南展示了如何将其集成到您的项目中。
 
-## Installation
+## 安装
 
-Add the package to your project:
+将包添加到您的项目中：
 
 ### Xcode
 
-- File → Add Package Dependencies…
-- URL: `https://github.com/Geeksfino/finclip-neuron.git`
-- Select `NeuronKit`
+- 文件 → 添加包依赖项…
+- URL：`https://github.com/Geeksfino/finclip-neuron.git`
+- 选择 `NeuronKit`
 
 ### SwiftPM `Package.swift`
 
@@ -31,11 +31,11 @@ Add the package to your project:
 
 ---
 
-## Quick Start
+## 快速开始
 
-Here's how to add conversational AI to your app in 5 simple steps:
+以下是在您的应用中添加对话式 AI 的 3 个简单步骤：
 
-### 1. Import and Configure
+### 1. 导入和配置
 
 ```swift
 import NeuronKit
@@ -48,23 +48,23 @@ let config = NeuronKitConfig(
 let neuronKit = NeuronKit(config: config)
 ```
 
-### 2. Start a Conversation Session
+### 2. 开始对话会话
 
 ```swift
 let sessionId = UUID()
 neuronKit.openSession(sessionId: sessionId, agentId: UUID())
 ```
 
-### 3. Send Messages
+### 3. 发送消息
 
 ```swift
-// Send text messages
+// 发送文本消息
 try? await neuronKit.sendMessage(
   sessionId: sessionId,
   text: "Hello, assistant!"
 )
 
-// Send with context (optional)
+// 发送带有上下文的消息（可选）
 try? await neuronKit.sendMessage(
   sessionId: sessionId,
   text: "Help me with my order",
@@ -72,42 +72,42 @@ try? await neuronKit.sendMessage(
 )
 ```
 
-That's it! Your app now has conversational AI capabilities.
+就是这样！您的应用现在具有对话式 AI 功能。
 
 ---
 
-## Configuration
+## 配置
 
-### Basic Configuration
+### 基本配置
 
 ```swift
 let config = NeuronKitConfig(
   serverURL: URL(string: "wss://your-agent-server.com")!,
-  deviceId: "unique-device-id", // Usually UUID
-  userId: "user-identifier"     // Your user ID
+  deviceId: "unique-device-id", // 通常是 UUID
+  userId: "user-identifier"     // 您的用户 ID
 )
 ```
 
 ---
 
-## Error Handling
+## 错误处理
 
-NeuronKit throws errors for network issues and invalid operations:
+NeuronKit 会为网络问题和无效操作抛出错误：
 
 ```swift
 func sendMessage(_ text: String) async {
   do {
     try await neuronKit.sendMessage(sessionId: sessionId, text: text)
   } catch {
-    print("Failed to send message: \(error)")
-    // Handle error (show alert, retry, etc.)
+    print("发送消息失败：\(error)")
+    // 处理错误（显示警报、重试等）
   }
 }
 ```
 
 ---
 
-## Requirements
+## 要求
 
 - iOS 14+
 - Swift 5.9+
@@ -115,6 +115,6 @@ func sendMessage(_ text: String) async {
 
 ---
 
-## License
+## 许可证
 
 Copyright 2023 Finclip / Geeksfino.
