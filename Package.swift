@@ -9,7 +9,8 @@ let package = Package(
   ],
   products: [
     .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
-    .library(name: "convstorelib", targets: ["convstorelib"])
+    .library(name: "convstorelib", targets: ["convstorelib"]),
+    .library(name: "NeuronKit", targets: ["NeuronKit"])
   ],
   targets: [
     .binaryTarget(
@@ -21,6 +22,11 @@ let package = Package(
       name: "convstorelib",
       url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vd13f744/convstorelib.xcframework.zip",
       checksum: "e01c0d05d8f90cacc846a4b69a4a5b4017bbb84b3223dafacb78d30d9b0316ce"
+    ),
+    .binaryTarget(
+      name: "NeuronKit",
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-vafad7a3/NeuronKit.xcframework.zip",
+      checksum: "7d53d99d58d9e3e6cc619745160b452fe25bb68e55d442ecc971c00c4d3dd385"
     )
   ]
 )
