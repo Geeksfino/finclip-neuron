@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -20,8 +20,8 @@ let package = Package(
     ),
     .binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v52d4562-swift6_2/convstorelib.xcframework.zip",
-      checksum: "68479e49f3fc4cab7cadd5c7076f9947fb69acdae2222776f8337283e811b45a"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-vcc74a28-swift6_2/convstorelib.xcframework.zip",
+      checksum: "c5972835822e4ed9a6399ebe0ebea6f360a122bdc4f54dcd30f63c0df66938a7"
     )
    ,
     .binaryTarget(
