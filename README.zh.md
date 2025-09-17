@@ -1,5 +1,7 @@
 # NeuronKit 开发者指南
 
+> 📖 **语言**: [English](README.md) | [中文](README.zh.md)
+
 NeuronKit 是一个 Swift SDK，可以在您的 iOS 应用中启用对话式 AI 代理。本指南展示了如何将其集成到您的项目中。
 
 ## 安装

@@ -1,5 +1,7 @@
 # NeuronKit Developer Guide
 
+> 📖 **Language**: [English](README.md) | [中文](README.zh.md)
+
 NeuronKit is a Swift SDK that enables conversational AI agents in your iOS app. This guide shows how to integrate it into your project.
 
 ## Installation
