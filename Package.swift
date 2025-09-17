@@ -20,9 +20,10 @@ let package = Package(
     ),
     .binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v6497964/convstorelib.xcframework.zip",
-      checksum: "f14151ae5af48224968df86ea531491dd959aad362a3a13b41f93ef74619d056"
-    ),
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v52d4562-swift6_2/convstorelib.xcframework.zip",
+      checksum: "68479e49f3fc4cab7cadd5c7076f9947fb69acdae2222776f8337283e811b45a"
+    )
+   ,
     .binaryTarget(
       name: "NeuronKit",
       url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-vfc0440f/NeuronKit.xcframework.zip",
