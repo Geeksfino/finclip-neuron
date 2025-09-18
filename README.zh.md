@@ -6,30 +6,38 @@ NeuronKit 是一个 Swift SDK，可以在您的 iOS 应用中启用对话式 AI 
 
 ## 安装
 
-将包添加到您的项目中：
+### Swift 工具链兼容性
 
-### Xcode
+我们为多个 Swift 工具链发布预编译二进制文件。请使用与您的 Xcode 版本匹配的分支以确保二进制兼容性。
 
-- 文件 → 添加包依赖项…
-- URL：`https://github.com/Geeksfino/finclip-neuron.git`
-- 选择 `NeuronKit`
+**对于 Swift 6.2（Xcode 16.2 及更高版本）：**
 
-### SwiftPM `Package.swift`
+在您的 `Package.swift` 中使用 `main` 分支：
 
 ```swift
 // Package.swift
 .dependencies: [
   .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main")
 ],
-.targets: [
-  .target(
-    name: "MyApp",
-    dependencies: [
-      .product(name: "NeuronKit", package: "finclip-neuron")
-    ]
-  )
-]
 ```
+
+**对于 Swift 6.0.x（Xcode 16.1）：**
+
+在您的 `Package.swift` 中使用 `main-swift6_0` 分支：
+
+```swift
+// Package.swift
+.dependencies: [
+  .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main-swift6_0")
+],
+```
+
+### 在 Xcode 中添加包
+
+1. 在 Xcode 中，转到**文件 → 添加包依赖项…**
+2. 输入仓库 URL：`https://github.com/Geeksfino/finclip-neuron.git`
+3. 对于**依赖规则**，选择**分支**并输入 `main` 或 `main-swift6_0`（根据您的工具链）。
+4. 将 `NeuronKit`、`SandboxSDK` 和 `convstorelib` 产品添加到您的应用目标中。
 
 ---
 
@@ -130,7 +138,7 @@ let ok = SandboxSDK.applyManifest([
 ])
 ```
 
-使用类型化 API 获得人体工程学和编译时结构。当您需要更丰富的验证时，切换到清单。
+使用类型化 API 获得易用性和编译时结构。当您需要更丰富的验证时，切换到清单。
 
 ---
 
@@ -525,8 +533,11 @@ Feature 根据执行位置/形态划分为以下分类（见 `sandbox/docs/spec.
 - `Native` —— 应用原生功能（导航、对话框、媒体、通知等）
 - `MiniApp` —— 内嵌微应用/小程序路由及其 JS API
 - `IoTDevice` —— 物联网设备控制与自动化
+- `External` —— 委托给外部第三方应用
+- `SystemApp` —— 操作系统提供的应用（日历、邮件等）
+- `Web` —— 浏览器/网页运行时调用
 
-在声明 `Feature` 时设置分类（Typed API 示例：`SandboxSDK.Feature(category: .Native | .MiniApp | .IoTDevice)`）。
+在声明 `Feature` 时设置分类（Typed API 支持：`.Native | .MiniApp | .IoTDevice | .External | .SystemApp | .Web`）。
 
 提示：分类不等同于权限。请始终为 Feature 指定所需能力（如 `UIAccess`、`Network`），并映射到合适的 Primitives。
 
@@ -580,8 +591,8 @@ if decision.status == .allowed {
 ## 要求
 
 - iOS 14+
-- Swift 5.9+
-- Xcode 15+
+- Swift 6.0+
+- Xcode 16.1+
 
 ---
 
