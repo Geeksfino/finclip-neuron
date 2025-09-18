@@ -6,30 +6,38 @@ NeuronKit is a Swift SDK that enables conversational AI agents in your iOS app. 
 
 ## Installation
 
-Add the package to your project:
+### Swift Toolchain Compatibility
 
-### Xcode
+We publish pre-compiled binaries for multiple Swift toolchains. Please use the branch that matches your Xcode version to ensure binary compatibility.
 
-- File → Add Package Dependencies…
-- URL: `https://github.com/Geeksfino/finclip-neuron.git`
-- Select `NeuronKit`
+**For Swift 6.2 (Xcode 16.2 and later):**
 
-### SwiftPM `Package.swift`
+Use the `main` branch in your `Package.swift`:
 
 ```swift
 // Package.swift
 .dependencies: [
   .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main")
 ],
-.targets: [
-  .target(
-    name: "MyApp",
-    dependencies: [
-      .product(name: "NeuronKit", package: "finclip-neuron")
-    ]
-  )
-]
 ```
+
+**For Swift 6.0.x (Xcode 16.1):**
+
+Use the `main-swift6_0` branch in your `Package.swift`:
+
+```swift
+// Package.swift
+.dependencies: [
+  .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main-swift6_0")
+],
+```
+
+### Adding the Package in Xcode
+
+1. In Xcode, go to **File → Add Package Dependencies…**
+2. Enter the repository URL: `https://github.com/Geeksfino/finclip-neuron.git`
+3. For the **Dependency Rule**, select **Branch** and enter `main` or `main-swift6_0` based on your toolchain.
+4. Add the `NeuronKit`, `SandboxSDK`, and `convstorelib` products to your app's target.
 
 ---
 
@@ -112,8 +120,8 @@ func sendMessage(_ text: String) async {
 ## Requirements
 
 - iOS 14+
-- Swift 5.9+
-- Xcode 15+
+- Swift 6.0+
+- Xcode 16.1+
 
 ---
 
