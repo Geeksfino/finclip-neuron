@@ -17,6 +17,11 @@ let package = Package(
         .product(name: "NeuronKit", package: "finclip-neuron"),
         .product(name: "SandboxSDK", package: "finclip-neuron"),
         .product(name: "convstorelib", package: "finclip-neuron")
+      ],
+      path: "Sources/custom",
+      exclude: [
+        // Use adapters shipped in NeuronKit; exclude local copies
+        "adapters"
       ]
     )
   ]

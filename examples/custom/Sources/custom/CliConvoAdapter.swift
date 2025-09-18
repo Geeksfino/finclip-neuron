@@ -10,6 +10,7 @@ class CliConvoAdapter: BaseConvoUIAdapter {
 
   // Reference to your UI component (in a real app, this would be a SwiftUI view model or UIKit controller)
   private let chatViewModel: ChatViewModel
+  private var interactiveTask: Task<Void, Never>?
 
   init(chatViewModel: ChatViewModel) {
     self.chatViewModel = chatViewModel
@@ -18,7 +19,7 @@ class CliConvoAdapter: BaseConvoUIAdapter {
 
   // Override to handle message display - update your CLI component
   override func handleMessages(_ messages: [NeuronMessage]) {
-    print("[CLIAdapter] Updating UI with \(messages.count) messages")
+    print("[CLI] Messages: \(messages.count)")
 
     // In a real SwiftUI app, you'd update @Published properties
     DispatchQueue.main.async {
@@ -27,31 +28,47 @@ class CliConvoAdapter: BaseConvoUIAdapter {
 
     // Show the latest message
     if let latest = messages.last {
-      print("[CLIAdapter] Latest: \(latest.sender.rawValue) - \(latest.content)")
+      let ts = ISO8601DateFormatter().string(from: latest.timestamp)
+      print("\n—— Inbound ——")
+      print("time: \(ts)")
+      print("from: \(latest.sender.rawValue)")
+      print("text: \(latest.content)")
+      print("———————\n")
     }
   }
 
   // Override to show consent UI - integrate with your UI framework
   override func handleConsentRequest(proposalId: UUID, sessionId: UUID, feature: String, args: [String: Any]) {
-    print("[CLIAdapter] 🔐 Consent request for: \(feature)")
-    print("[CLIAdapter] Args: \(args)")
-
-    // In a real app, you'd show a SwiftUI alert or sheet
-    chatViewModel.showConsentDialog(
-      title: "Permission Request",
-      message: "The agent wants to use: \(feature)",
-      onApprove: { [weak self] in
-        self?.context?.userProvidedConsent(messageId: proposalId, approved: true)
-      },
-      onDeny: { [weak self] in
-        self?.context?.userProvidedConsent(messageId: proposalId, approved: false)
+    let separator = String(repeating: "=", count: 50)
+    print("\n" + separator)
+    print("🔐 CONSENT REQUEST")
+    print(separator)
+    print("Feature: \(feature)")
+    if !args.isEmpty { 
+      print("Arguments:")
+      for (key, value) in args {
+        print("  • \(key): \(value)")
       }
-    )
+    }
+    print(separator)
+    print("The agent wants to use this feature. Do you approve?")
+    print("Approve? [y/N]: ", terminator: "")
+    
+    let answer = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "n"
+    let approved = (answer == "y" || answer == "yes")
+    context?.userProvidedConsent(messageId: proposalId, approved: approved)
+    
+    if approved {
+      print("✅ CONSENT APPROVED - Feature will execute")
+    } else {
+      print("❌ CONSENT DENIED - Feature execution blocked")
+    }
+    print(separator + "\n")
   }
 
   // Override to handle system notifications
   override func handleSystemMessage(_ text: String) {
-    print("[CLIAdapter] 📢 System: \(text)")
+    print("[CLI] 📢 System: \(text)")
 
     // In a real app, you might show a toast or banner
     DispatchQueue.main.async {
@@ -61,15 +78,63 @@ class CliConvoAdapter: BaseConvoUIAdapter {
 
   // Called after binding - set up any additional subscriptions
   override func didBind(sessionId: UUID) {
-    print("[CLIAdapter] ✅ Bound to session: \(sessionId)")
+    print("[CLI] ✅ Bound to session: \(sessionId)")
 
     // In a real app, you might set up additional UI state
     chatViewModel.isConnected = true
+
+    // Start interactive input loop
+    interactiveTask?.cancel()
+    interactiveTask = Task { [weak self] in
+      self?.printHelp()
+      while !(Task.isCancelled) {
+        print("> ", terminator: "")
+        guard let line = readLine() else { break }
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { continue }
+        if trimmed == "/quit" || trimmed == "/exit" || trimmed == ":q" {
+          print("[CLI] exiting... bye!")
+          fflush(stdout)
+          exit(0)
+        }
+        if trimmed == "/help" { self?.printHelp(); continue }
+        do {
+          try await self?.sendMessage(trimmed)
+        } catch {
+          print("[CLI] send error: \(error)")
+        }
+      }
+      print("[CLI] exiting input loop (press Ctrl+C to quit the app)")
+    }
   }
 
   // Called before unbinding - clean up resources
   override func didUnbind() {
-    print("[CLIAdapter] 🔌 Unbound from session")
+    print("[CLI] 🔌 Unbound from session")
     chatViewModel.isConnected = false
+    interactiveTask?.cancel()
+    interactiveTask = nil
+  }
+
+  private func printHelp() {
+    print("""
+    
+    🎯 CLI Demo Controls:
+      /help    show this help
+      /quit    exit demo
+      /exit    exit demo
+    
+    📝 Try these example messages:
+      "I want to pay for something"     → triggers payment feature
+      "Take a photo"                    → triggers camera feature  
+      "Show my contacts"                → triggers contacts feature
+      "Where am I?"                     → triggers location feature
+      "Send me a notification"          → triggers notification feature
+    
+    💡 The agent will always select the 2nd available feature (camera by default).
+       Different features have different consent requirements!
+    
+    Type any message and press Enter to send it to the agent.
+    """)
   }
 }

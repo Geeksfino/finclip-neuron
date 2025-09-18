@@ -53,8 +53,8 @@ enum CustomDemoApp {
   // MARK: - Adapter Integration Example
   
   static func runAdapterIntegrationExample() async {
-    print("🎨 Adapter Integration Example")
-    print("This shows how to wrap your UI component with a ConvoUI adapter")
+    print("🎨 Adapter Integration Example (CLI)")
+    print("Type /help for commands. Messages you type are sent to the agent.")
     
     // 1. Create your UI component (SwiftUI ViewModel, UIKit Controller, etc.)
     let chatViewModel = ChatViewModel()
@@ -70,27 +70,162 @@ enum CustomDemoApp {
     )
     let neuronKit = NeuronRuntime(config: config)
     
-    // Use mock network adapter to show proper flow
-    let mockNetworkAdapter = MockAgentNetworkAdapter()
-    neuronKit.setNetworkAdapter(mockNetworkAdapter)
+    // Use LoopbackNetworkAdapter to show proper end-to-end flow without a server
+    let loopback = LoopbackNetworkAdapter()
+    neuronKit.setNetworkAdapter(loopback)
     
-    // 4. Register features
-    let paymentFeature = SandboxSDK.Feature(
-      id: "open_payment",
-      name: "Open Payment",
-      description: "Opens payment screen",
-      category: .Native,
-      path: "/payment",
-      requiredCapabilities: [.UIAccess],
-      primitives: [.MobileUI(page: "/payment", component: nil)]
-    )
+    // 4. Register multiple features with different policies
+    let features = [
+      // Feature 1: Payment (high security)
+      SandboxSDK.Feature(
+        id: "open_payment",
+        name: "Open Payment",
+        description: "Opens payment screen for transactions",
+        category: .Native,
+        path: "/payment",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/payment", component: nil)]
+      ),
+      
+      // Feature 2: Camera (medium security)
+      SandboxSDK.Feature(
+        id: "open_camera",
+        name: "Open Camera",
+        description: "Access device camera for photos",
+        category: .Native,
+        path: "/camera",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/camera", component: "camera")]
+      ),
+      
+      // Feature 3: Contacts (high sensitivity)
+      SandboxSDK.Feature(
+        id: "access_contacts",
+        name: "Access Contacts",
+        description: "Read user's contact list",
+        category: .Native,
+        path: "/contacts",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/contacts", component: "list")]
+      ),
+      
+      // Feature 4: Location (medium sensitivity)
+      SandboxSDK.Feature(
+        id: "get_location",
+        name: "Get Location",
+        description: "Access current GPS location",
+        category: .Native,
+        path: "/location",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/location", component: "map")]
+      ),
+      
+      // Feature 5: Send notification (low security)
+      SandboxSDK.Feature(
+        id: "send_notification",
+        name: "Send Notification",
+        description: "Display system notification",
+        category: .Native,
+        path: "/notification",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/notification", component: "alert")]
+      ),
+
+      // Feature 6: Export report with parameters (typed, using primitive fields)
+      // Demonstrates passing parameters via primitive configuration
+      SandboxSDK.Feature(
+        id: "export_report",
+        name: "Export Report",
+        description: "Export a report with a given format",
+        category: .Native,
+        path: "/report/export",
+        requiredCapabilities: [.UIAccess],
+        // Encode parameters into the primitive (e.g., component holds query-like info for demo)
+        primitives: [.MobileUI(page: "/report/export", component: "format=csv&range=last30d")],
+        argsSchema: FeatureArgsSchema(
+          required: ["format", "range"],
+          properties: [
+            "format": FeatureArgSpec(
+              type: .string,
+              description: "Export format",
+              enumVals: ["csv", "xlsx"]
+            ),
+            "range": FeatureArgSpec(
+              type: .string,
+              description: "Time range identifier",
+              pattern: "^(today|yesterday|last7d|last30d|mtd|ytd)$"
+            )
+          ]
+        ) // demonstrate required args + typed constraints
+      ),
+
+      // Feature 7: MiniApp route (category MiniApp)
+      // Spec defines categories: Native, MiniApp, IoTDevice.
+      // Here we register a MiniApp feature; primitive uses MobileUI for demo wiring.
+      SandboxSDK.Feature(
+        id: "miniapp_order_detail",
+        name: "MiniApp Order Detail",
+        description: "Open order detail within embedded mini app",
+        category: .MiniApp,
+        path: "/miniapp/order",
+        requiredCapabilities: [.UIAccess],
+        primitives: [.MobileUI(page: "/miniapp/order", component: "detail")]
+      )
+    ]
     
-    _ = neuronKit.sandbox.registerFeature(paymentFeature)
+    // Register all features
+    for feature in features {
+      _ = neuronKit.sandbox.registerFeature(feature)
+    }
+    
+    // Set different policies for each feature
     _ = neuronKit.sandbox.setPolicy("open_payment", SandboxSDK.Policy(
       requiresUserPresent: true,
       requiresExplicitConsent: true,
+      sensitivity: .high,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 3)
+    ))
+    
+    _ = neuronKit.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
+      requiresUserPresent: true,
+      requiresExplicitConsent: true,
       sensitivity: .medium,
-      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 5)
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 10)
+    ))
+    
+    _ = neuronKit.sandbox.setPolicy("access_contacts", SandboxSDK.Policy(
+      requiresUserPresent: true,
+      requiresExplicitConsent: true,
+      sensitivity: .high,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 2)
+    ))
+    
+    _ = neuronKit.sandbox.setPolicy("get_location", SandboxSDK.Policy(
+      requiresUserPresent: true,
+      requiresExplicitConsent: false, // No explicit consent needed
+      sensitivity: .medium,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 20)
+    ))
+    
+    _ = neuronKit.sandbox.setPolicy("send_notification", SandboxSDK.Policy(
+      requiresUserPresent: false, // Can work in background
+      requiresExplicitConsent: false,
+      sensitivity: .low,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 30)
+    ))
+
+    _ = neuronKit.sandbox.setPolicy("export_report", SandboxSDK.Policy(
+      requiresUserPresent: true,
+      requiresExplicitConsent: true,
+      sensitivity: .medium,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 10)
+    ))
+
+    _ = neuronKit.sandbox.setPolicy("miniapp_order_detail", SandboxSDK.Policy(
+      requiresUserPresent: true,
+      requiresExplicitConsent: false,
+      sensitivity: .low,
+      rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 30)
     ))
     
     // 5. Set the adapter (this automatically handles all message/event subscriptions)
@@ -99,37 +234,12 @@ enum CustomDemoApp {
     // 6. Start session (adapter automatically binds)
     let sessionId = UUID()
     neuronKit.openSession(sessionId: sessionId, agentId: UUID())
-    
-    // 7. Send messages (can be done from UI or programmatically)
-    try? await neuronKit.sendMessage(sessionId: sessionId, text: "Hello from custom UI!")
-    
-    // Simulate user sending message from UI
-    await chatViewModel.sendMessage("I want to make a payment", adapter: uiAdapter)
-    
-    // Wait for responses
-    try? await Task.sleep(nanoseconds: 1_000_000_000)
-    
-    // 8. The MockAgentNetworkAdapter will automatically simulate agent responses
-    // This shows the proper flow: NetworkAdapter → NeuronKit → ConvoUIAdapter
-    print("⏳ [Demo] Waiting for agent response via NetworkAdapter...")
-    
-    // Wait for the mock network adapter to send agent directive
-    try? await Task.sleep(nanoseconds: 3_000_000_000)
-    
-    print("✅ Adapter Integration example completed!")
-    print("")
-    print("📱 In a real app with WebSocketNetworkAdapter:")
-    print("   1. Agent sends: {\"type\":\"directives\", \"directives\":[{\"feature\":\"open_payment\"}]}")
-    print("   2. WebSocketAdapter.inbound publishes the raw JSON data")
-    print("   3. NeuronKit.acceptInboundFrame() receives the data")
-    print("   4. DirectiveWorker parses InboundEnvelope → creates ConvoEvent")
-    print("   5. ConvoUIAdapter.handleConsentRequest() shows UI")
-    print("   6. User approves → context.userProvidedConsent() → agent gets response")
-    print("")
-    print("🎨 UI Framework Integration:")
-    print("   - ChatViewModel would be your SwiftUI @ObservableObject")
-    print("   - CliConvoAdapter would bridge NeuronKit ↔ CLI/SwiftUI")
-    print("   - UI events (button taps) would call adapter.sendMessage()")
-    print("   - Adapter updates would trigger SwiftUI view updates")
+
+    // Keep the process alive for interactive CLI input; exit with Ctrl+C
+    // Use an async-friendly infinite sleep loop to avoid Swift 6 warnings
+    while true {
+      do { try await Task.sleep(nanoseconds: 3_600_000_000_000) } // 1 hour
+      catch { /* ignore */ }
+    }
   }
 }
