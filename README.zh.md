@@ -48,7 +48,7 @@ flowchart LR
     UI[应用 UI]
     ConvoUI[ConvoUI 适配器]
     Runtime[NeuronRuntime]
-    Sandbox[Sandbox (PDP/PEP)]
+    Sandbox["Sandbox (PDP/PEP)"]
   end
 
   Agent[(Agent 服务)]
