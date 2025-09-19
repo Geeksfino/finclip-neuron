@@ -7,6 +7,7 @@ FinClip Neuron provides a runtime and SDKs to build agent-driven experiences saf
 - A capabilities-based sandbox with fine‑grained policies (least privilege, consent, rate limits).
 - A conversation runtime (NeuronKit) that turns agent proposals into safe, auditable actions.
 - Pluggable adapters for networking (bring your own transport) and UI (bridge your UI to the runtime).
+- Built-in message storage with persistence enabled by default (configurable).
 
 This repository publishes NeuronKit and example apps, and hosts binary XCFrameworks for SandboxSDK and convstorelib.
 
@@ -117,10 +118,12 @@ import NeuronKit
 import SandboxSDK
 
 // 1) Configuration
+// Storage is persistent by default; override with `storage: .inMemory` for tests/demos
 let config = NeuronKitConfig(
   serverURL: URL(string: "wss://agent.example.com")!,
   deviceId: "demo-device",
-  userId: "demo-user"
+  userId: "demo-user",
+  storage: .persistent // default; use .inMemory for tests
 )
 
 // 2) Initialize runtime
@@ -151,9 +154,10 @@ _ = sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 // Optional (advanced): configure adapters
 // runtime.setNetworkAdapter(MyWebSocketNetworkAdapter(url: URL(string: "wss://...")!))
 
-// Start a session when your app is ready to converse
-let sessionId = UUID()
-runtime.openSession(sessionId: sessionId, agentId: UUID())
+// Open a conversation when your app is ready to converse (fluent API)
+let convo = runtime.openConversation(agentId: UUID())
+// Optionally bind a UI adapter for streaming messages
+// convo.bindUI(MyConvoAdapter())
 ```
 
 To see a working end‑to‑end demo (with a simple CLI adapter and loopback networking), run:
@@ -325,13 +329,42 @@ See examples:
 
 ---
 
-## 8. ConvoUI Adapters (for custom implementation)
+## 8. Storage configuration (persistence)
+
+NeuronKit uses a local message store to persist conversation history. By default, persistence is enabled. Configure it when creating `NeuronKitConfig`:
+
+```swift
+let config = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .persistent // default
+)
+// For tests/demos where persistence is not needed:
+let inMemory = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .inMemory
+)
+```
+
+- Use the publisher `runtime.messagesPublisher(sessionId:)` (or `convo.messagesPublisher`) to stream history and updates.
+- Use `runtime.messagesSnapshot(sessionId:limit:before:)` to fetch one-shot paginated history for list previews or initial render.
+
+## 9. ConvoUI Adapters (for custom implementation)
 
 A ConvoUI adapter bridges your UI with NeuronKit.
 
 - It forwards user input into the runtime (so your app does not call `sendMessage` directly in typical integrations).
 - It renders inbound messages and system notifications.
 - It shows consent prompts when PDP requires explicit approval.
+
+> Attach vs Resume (short guide)
+>
+> - Use `attachConversation(sessionId:)` to obtain a read-only handle for lists and previews. You can still bind a UI to stream history via `messagesPublisher`, but live events won’t flow until resumed.
+> - Use `resumeConversation(sessionId:agentId:)` to ensure the session is live (workers active) and bind a UI for history + live updates.
+> - For screen navigation, prefer `convo.unbindUI()` on disappear and `convo.bindUI(...)` on appear; call `convo.close()` only when ending the conversation.
 
 ### Session-Centric Binding (Recommended)
 

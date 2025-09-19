@@ -28,10 +28,25 @@ try await convo.sendMessage("Hello")
 convo.close()
 ```
 
+### Read-only vs Live (attach vs resume)
+
+- `attachConversation(sessionId:)` returns a conversation handle without activating workers. Use this in lists and previews (read-only history). You can still bind a UI to stream history via `messagesPublisher`.
+- `resumeConversation(sessionId:agentId:)` ensures the conversation is active (creates a session context + workers if missing) and returns a live handle. Bind a UI for history + live updates.
+
+```swift
+// List screen (preview)
+let attached = runtime.attachConversation(sessionId: sid)
+let last = try? runtime.messagesSnapshot(sessionId: sid, limit: 1).last
+
+// Detail screen (continue live)
+let live = runtime.resumeConversation(sessionId: sid, agentId: agentId)
+live.bindUI(MyConvoAdapter())
+```
+
 ## Files
 
-- `Sources/App/RuntimeProvider.swift` — Creates `NeuronRuntime`, exposes its `sandbox`, registers sample features/policies, and provides bind/unbind helpers
-- `Sources/App/ContentView.swift` — Very simple SwiftUI view wiring to show state/messages hook points
+- `Sources/App/RuntimeProvider.swift` — Creates `NeuronRuntime`, exposes its `sandbox`, registers sample features/policies, and provides bind/unbind helpers. Also exposes `conversations` array, `messagesSnapshot`, and a `resumeAndBind` helper for the demo.
+- `Sources/App/ContentView.swift` — Shows a Conversations list (read-only previews via `messagesSnapshot`) and a Conversation detail screen with a “Continue (Live)” button that calls `resumeConversation` and binds a `ConvoUIAdapter`.
 - `Sources/App/App.swift` — SwiftUI App entry that initializes the provider
 - `Sources/App/MultiSessionExample.swift` — Demonstrates multiple conversations and UI binding
 - `Package.swift` — A sample manifest showing dependency on `finclip-neuron`
@@ -70,6 +85,11 @@ let package = Package(
   ]
 )
 ```
+
+## Storage and History
+
+- NeuronKit storage defaults to persistent. You can configure this via `NeuronKitConfig(storage: .persistent | .inMemory)`.
+- Use `messagesPublisher(sessionId:)` for streaming updates (live sessions) and `messagesSnapshot(sessionId:limit:before:)` for pagination and previews.
 
 ## Next steps
 

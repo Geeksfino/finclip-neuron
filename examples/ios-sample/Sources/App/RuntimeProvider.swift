@@ -10,6 +10,7 @@ final class RuntimeProvider: ObservableObject {
   let sandbox: Sandbox
 
   @Published var isSessionOpen: Bool = false
+  @Published var conversations: [UUID] = []
   private var conversation: Conversation?
   private(set) var sessionId: UUID? // kept for display/debug if needed
 
@@ -35,9 +36,28 @@ final class RuntimeProvider: ObservableObject {
     // runtime.setNetworkAdapter(MyWebSocketNetworkAdapter(url: URL(string: "wss://.../ws")!))
   }
 
+  // MARK: - Conversations list helpers (attach vs resume)
+  func createConversationEntry() {
+    let sid = UUID()
+    conversations.insert(sid, at: 0)
+  }
+
+  func messagesSnapshot(sessionId: UUID, limit: Int = 50, before: Date? = nil) -> [NeuronMessage] {
+    (try? runtime.messagesSnapshot(sessionId: sessionId, limit: limit, before: before)) ?? []
+  }
+
+  func resumeAndBind(sessionId: UUID, adapter: ConvoUIAdapter, agentId: UUID = UUID()) {
+    let convo = runtime.resumeConversation(sessionId: sessionId, agentId: agentId)
+    self.conversation = convo
+    self.sessionId = sessionId
+    self.isSessionOpen = true
+    convo.bindUI(adapter)
+  }
+
   func openSession() {
     guard conversation == nil else { return }
     let sid = UUID()
+    conversations.insert(sid, at: 0)
     let convo = runtime.openConversation(sessionId: sid, agentId: UUID())
     self.conversation = convo
     self.sessionId = sid
@@ -62,6 +82,11 @@ final class RuntimeProvider: ObservableObject {
   
   func unbindUI() {
     conversation?.unbindUI()
+  }
+
+  // Access to messages publisher for a given session (useful for read-only attach)
+  func messagesPublisher(sessionId: UUID) -> AnyPublisher<[NeuronMessage], Never> {
+    runtime.messagesPublisher(sessionId: sessionId)
   }
 
   // MARK: - Sample Feature Registration

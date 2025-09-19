@@ -7,6 +7,7 @@ FinClip Neuron 帮助你在移动端与桌面端安全地构建“智能体驱�
 - 基于能力的沙箱（Sandbox），提供最小权限、用户同意、频率限制等精细控制。
 - 会话运行时（NeuronKit），将智能体的提案（指令）安全地转化为可审计的动作。
 - 可插拔的网络适配器与 ConvoUI 适配器，方便你接入自有网络传输与 UI 桥接。
+- 内置消息存储，默认开启持久化（可配置）。
 
 本仓库发布 NeuronKit 以及示例应用，并提供 SandboxSDK 与 convstorelib 的二进制依赖。
 
@@ -130,14 +131,16 @@ swift run
 import NeuronKit
 import SandboxSDK
 
+// 配置（默认持久化，可通过 storage 指定内存模式）
 let config = NeuronKitConfig(
   serverURL: URL(string: "wss://api.example.com")!,
   deviceId: "demo-device",
-  userId: "demo-user"
+  userId: "demo-user",
+  storage: .persistent // 默认；测试/演示可用 .inMemory
 )
 let runtime = NeuronRuntime(config: config)
 
-// 打开会话（会话句柄）
+// 打开会话（会话句柄，流式/实时）
 let convo = runtime.openConversation(agentId: UUID())
 
 // 绑定 UI 适配器到该会话
@@ -150,6 +153,11 @@ runtime.setNetworkAdapter(networkAdapter)
 
 // 发送消息
 try await convo.sendMessage("Hello")
+
+// （可选）只读历史：attach + 快照分页
+let attached = runtime.attachConversation(sessionId: convo.sessionId)
+let firstPage = try? runtime.messagesSnapshot(sessionId: attached.sessionId, limit: 50)
+let olderPage = try? runtime.messagesSnapshot(sessionId: attached.sessionId, limit: 50, before: firstPage?.first?.timestamp)
 ```
 
 ---
@@ -235,7 +243,31 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 
 ---
 
-## 8. ConvoUI 适配器（自定义实现）
+## 8. 存储配置（持久化）
+
+NeuronKit 使用本地消息存储保存会话历史，默认“持久化”开启。可在创建 `NeuronKitConfig` 时配置：
+
+```swift
+let config = NeuronKitConfig(
+  serverURL: URL(string: "wss://api.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .persistent // 默认
+)
+
+// 测试/演示无需持久化：
+let inMemory = NeuronKitConfig(
+  serverURL: URL(string: "wss://api.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .inMemory
+)
+```
+
+- 使用发布者 `runtime.messagesPublisher(sessionId:)`（或 `convo.messagesPublisher`）获取历史+增量更新。
+- 使用 `runtime.messagesSnapshot(sessionId:limit:before:)` 做分页或列表预览。
+
+## 9. ConvoUI 适配器（自定义实现）
 
 ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 
