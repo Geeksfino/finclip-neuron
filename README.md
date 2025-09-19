@@ -45,7 +45,7 @@ flowchart LR
     UI[Your UI]
     ConvoUI[ConvoUI Adapter]
     Runtime[NeuronRuntime]
-    Sandbox[Sandbox (PDP/PEP)]
+    Sandbox["Sandbox (PDP/PEP)"]
   end
 
   Agent[(Agent Service)]
