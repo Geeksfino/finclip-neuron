@@ -1,450 +1,229 @@
-# NeuronKit Developer Guide
+# FinClip Neuron — Developer Guide
 
-> 📖 **Language**: [English](README.md) | [中文](README.zh.md)
+## 1. Introduction
 
-NeuronKit is a Swift SDK that enables conversational AI agents in your iOS app. This guide shows how to integrate it into your project.
+FinClip Neuron provides a runtime and SDKs to build agent-driven experiences safely on mobile and desktop. It combines:
 
-## Installation
+- A capabilities-based sandbox with fine‑grained policies (least privilege, consent, rate limits).
+- A conversation runtime (NeuronKit) that turns agent proposals into safe, auditable actions.
+- Pluggable adapters for networking (bring your own transport) and UI (bridge your UI to the runtime).
 
-### Swift Toolchain Compatibility
+This repository publishes NeuronKit and example apps, and hosts binary XCFrameworks for SandboxSDK and convstorelib.
 
-We publish pre-compiled binaries for multiple Swift toolchains. Please use the branch that matches your Xcode version to ensure binary compatibility.
+- Repo path to explore:
+  - `finclip-neuron/examples/custom/` — a CLI example you can run with `swift run`.
 
-**For Swift 6.2 (Xcode 16.2 and later):**
+---
 
-Use the `main` branch in your `Package.swift`:
+## 2. Core Concepts
 
-```swift
-// Package.swift
-.dependencies: [
-  .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main")
-],
+- **Features → Capabilities → Primitives**
+  - A Feature describes a high-level function (e.g., "Open Camera").
+  - Each Feature requires one or more Capabilities (e.g., UI access, device sensor access).
+  - Capabilities are exercised by concrete Primitives (e.g., `MobileUI(page:"/camera", component:"camera")`).
+
+- **PDP (Policy Decision Point)**
+  - Evaluates whether a proposed action is allowed. Inputs include: user presence, explicit consent, sensitivity, rate limits, historical usage.
+
+- **PEP (Policy Enforcement Point)**
+  - Enforces the PDP decision in the app runtime. If denied, the action is blocked. If allowed with consent, it prompts UI.
+
+- **Context**
+  - Device Context: device type, timezone, network/battery, etc.
+  - Application/Scenario Context: app-specific state, current screen/route, business metadata.
+
+- **Feature Invocation (Tools)**
+  - Agents propose directives referencing Feature IDs and typed args. The runtime validates arguments (FeatureArgsSchema) and policies before invoking primitives.
+
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart LR
+  subgraph App
+    UI[Your UI]
+    ConvoUI[ConvoUI Adapter]
+    Runtime[NeuronRuntime]
+    Sandbox[Sandbox (PDP/PEP)]
+  end
+
+  Agent[(Agent Service)]
+
+  UI -->|User input/events| ConvoUI
+  ConvoUI -->|binds session, forwards user intent| Runtime
+  Runtime --> Sandbox
+  Sandbox -->|decision: allow/ask/deny| Runtime
+  Runtime -->|feature proposals / messages| ConvoUI
+  ConvoUI -->|consent UI when needed| UI
+
+  Runtime <--> |bytes| Net[NetworkAdapter]
+  Net <--> Agent
 ```
 
-**For Swift 6.0.x (Xcode 16.1):**
+Key points:
 
-Use the `main-swift6_0` branch in your `Package.swift`:
+- **ConvoUI Adapter** bridges your UI and the runtime (typical apps do not call `sendMessage` directly).
+- **Sandbox** evaluates policy (PDP) and the app enforces it (PEP) by showing consent and shaping execution.
+- **NetworkAdapter** is pluggable (WebSocket/HTTP/custom) and transports messages to your agent backend.
+
+---
+
+## 3. Installation and Dependencies
+
+Add the package to your SwiftPM manifest:
 
 ```swift
 // Package.swift
-.dependencies: [
+dependencies: [
   .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main-swift6_0")
 ],
-```
 
-### Adding the Package in Xcode
-
-1. In Xcode, go to **File → Add Package Dependencies…**
-2. Enter the repository URL: `https://github.com/Geeksfino/finclip-neuron.git`
-3. For the **Dependency Rule**, select **Branch** and enter `main` or `main-swift6_0` based on your toolchain.
-4. Add the `NeuronKit`, `SandboxSDK`, and `convstorelib` products to your app's target.
-
----
-
-## Declaring Arguments with the Typed API
-
-The typed `Feature` model now supports declaring required arguments via `FeatureArgsSchema`. This maps to the PDP's `args_schema` and is surfaced to agents via `exportFeatureOverviews()`.
-
-Example:
-
-```swift
-import SandboxSDK
-
-let exportFeature = SandboxSDK.Feature(
-  id: "exportPortfolioCSV",
-  name: "Export Portfolio CSV",
-  description: "Export positions as CSV",
-  category: .Native,
-  path: "/export",
-  requiredCapabilities: [.Network],
-  primitives: [
-    .NetworkOp(url: "https://api.example.com/export", method: .GET, headers: ["Accept": "text/csv"], body: nil)
-  ],
-  argsSchema: FeatureArgsSchema(required: ["format", "date_from", "date_to"]) // ← new
-)
-
-_ = SandboxSDK.registerFeature(exportFeature)
-
-let dec = try SandboxSDK.evaluateFeature(
-  "exportPortfolioCSV",
-  args: ["format": "csv", "date_from": "2025-09-01", "date_to": "2025-09-18"],
-  context: nil
-)
-if dec.status == .allowed {
-  _ = try SandboxSDK.recordUsage("exportPortfolioCSV")
-}
-```
-
-Note:
-
-- Ensure your app depends on a SandboxSDK version that includes `FeatureArgsSchema` (and updated `Feature` initializers).
-- For more advanced schemas (types, enums), you can still use manifest/dictionary registration.
-
----
-
-## Typed vs. Manifest Registration (Side-by-side)
-
-Below is the same feature registered in two ways: typed API and manifest/dictionary.
-
-### 1) Typed API (concise, compile-time model)
-
-```swift
-import SandboxSDK
-
-let feature = SandboxSDK.Feature(
-  id: "open_payment",
-  name: "Open Payment",
-  description: "Opens payment screen",
-  category: .Native,
-  path: "/payment",
-  requiredCapabilities: [.UIAccess],
-  primitives: [.MobileUI(page: "/payment", component: nil)],
-  argsSchema: FeatureArgsSchema(required: ["amount", "currency"]) // minimal required-keys
-)
-_ = SandboxSDK.registerFeature(feature)
-_ = SandboxSDK.setPolicy("open_payment", SandboxSDK.Policy(
-  requiresUserPresent: true,
-  requiresExplicitConsent: true,
-  sensitivity: .medium,
-  rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 5)
-))
-```
-
-### 2) Manifest/Dictionary (full schema flexibility)
-
-```swift
-let ok = SandboxSDK.applyManifest([
-  "features": [[
-    "id": "open_payment",
-    "name": "Open Payment",
-    "category": "Native",
-    "path": "/payment",
-    "required_capabilities": ["UIAccess"],
-    "primitives": [["type": "MobileUI", "page": "/payment"]],
-    // Richer schema possible (types/enums/patterns)
-    "args_schema": [
-      "amount": ["type": "number", "min": 0],
-      "currency": ["type": "string", "enum": ["USD", "EUR", "CNY"]]
+targets: [
+  .executableTarget(
+    name: "YourApp",
+    dependencies: [
+      .product(name: "NeuronKit", package: "finclip-neuron"),
+      .product(name: "SandboxSDK", package: "finclip-neuron"),
+      .product(name: "convstorelib", package: "finclip-neuron")
     ]
-  ]],
-  "policies": [
-    "open_payment": [
-      "requires_user_present": true,
-      "requires_explicit_consent": true,
-      "sensitivity": "medium",
-      "rate_limit": ["unit": "minute", "max": 5]
-    ]
-  ]
-])
+  )
+]
 ```
 
-Use the typed API for ergonomics and compile-time structure. Switch to manifest when you need richer validation.
+Binary artifacts provided by this repo:
+
+- `NeuronKit.xcframework`
+- `SandboxSDK.xcframework`
+- `convstorelib.xcframework`
 
 ---
 
-## Should FeatureArgsSchema include types/enums/patterns?
+## 4. Quick Start (Primary integration steps)
 
-Short answer: it can be useful, even if agent-provided values are strings.
+The primary SDK integration sequence is:
 
-- Validation: PDP can validate strings against expected shapes (numeric, enum members, patterns) and reject/ask early.
-- Agent guidance: exported schemas help agents produce better values (tooling prompts, UI forms).
-- Interop: downstream host code can safely parse/convert strings (e.g., to Decimal) when the schema promises numeric.
+1) Create a configuration.
+2) Initialize the runtime.
+3) Get a reference to the sandbox.
+4) Register features and set policies.
 
-However, adding a fully-typed schema increases API surface and maintenance cost. A pragmatic approach is:
+Setting network and ConvoUI adapters is optional/advanced. Applications typically do not call `runtime.sendMessage` directly; your chosen UI/adapter integration will drive messaging.
 
-- Keep typed API minimal (required keys) for now.
-- Use manifest/dictionary when you need types/enums/patterns or custom validators.
-- If your app frequently relies on strict validation, consider incrementally extending `FeatureArgsSchema` with optional annotations like `types`, `enums`, or `pattern`.
-
-## Quick Start
-
-Here's how to add conversational AI to your app in 5 simple steps:
-
-### 1. Import and Configure
-
-```swift
-import NeuronKit
-
-let config = NeuronKitConfig(
-  serverURL: URL(string: "wss://your-agent-server.com")!,
-  deviceId: UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device",
-  userId: "your-user-id"
-)
-let runtime = NeuronRuntime(config: config)
-```
-
-### 2. Start a Conversation Session
-
-```swift
-let sessionId = UUID()
-runtime.openSession(sessionId: sessionId, agentId: UUID())
-```
-
-### 3. Send Messages
-
-```swift
-// Send text messages
-try? await runtime.sendMessage(
-  sessionId: sessionId,
-  text: "Hello, assistant!"
-)
-
-// Send with context (optional)
-try? await runtime.sendMessage(
-  sessionId: sessionId,
-  text: "Help me with my order",
-  context: ["screen": "orders", "user_action": "support"]
-)
-```
-
-That's it! Your app now has conversational AI capabilities.
-
----
-
-## Core Concepts
-
-- **NeuronRuntime**: The central object you create with `NeuronKitConfig`. It manages sessions, messaging, sandbox policies, and network adapters.
-- **ConvoUIAdapter**: Your app's bridge between UI and the runtime. It receives conversation updates, displays messages, and handles consent prompts.
-- **Sandbox**: A policy engine that governs what features the agent can use, under what conditions (user present, consent, rate limits, sensitivity), and with full auditability.
-- **NetworkAdapter**: Pluggable transport to connect to your agent service (WebSocket/HTTP/custom). You can swap adapters without changing your business logic.
-- **Sessions & Messages**: Create a `sessionId` per conversation. Send user text and optional context; receive agent messages and directives through your adapter.
-
----
-
-## Configuration
-
-### Basic Configuration
-
-```swift
-let config = NeuronKitConfig(
-  serverURL: URL(string: "wss://your-agent-server.com")!,
-  deviceId: "unique-device-id", // Usually UUID
-  userId: "user-identifier"     // Your user ID
-)
-```
-
----
-
-## Error Handling
-
-NeuronKit throws errors for network issues and invalid operations:
-
-```swift
-func sendMessage(_ text: String) async {
-  do {
-    try await runtime.sendMessage(sessionId: sessionId, text: text)
-  } catch {
-    print("Failed to send message: \(error)")
-    // Handle error (show alert, retry, etc.)
-  }
-}
-```
-
----
-
-## Sandbox: Register Features and Set Policies
-
-NeuronKit ships with a powerful in-app Sandbox to control what agent actions are allowed. You can register app features, define policies (e.g., user presence, explicit consent, rate limits), and then export those features to the agent at runtime.
-
-The following snippet shows:
-
-- Registering a feature (`open_payment`)
-- Setting a policy (requires user present + explicit consent + rate limit)
-- Wiring a UI adapter to handle consent requests and messages
+Minimal integration snippet:
 
 ```swift
 import NeuronKit
 import SandboxSDK
 
-// 1) Create runtime and (optionally) your UI adapter
+// 1) Configuration
 let config = NeuronKitConfig(
-  serverURL: URL(string: "wss://api.example.com")!,
+  serverURL: URL(string: "wss://agent.example.com")!,
   deviceId: "demo-device",
   userId: "demo-user"
 )
+
+// 2) Initialize runtime
 let runtime = NeuronRuntime(config: config)
 
-// 2) Register a feature
-let paymentFeature = SandboxSDK.Feature(
-  id: "open_payment",
-  name: "Open Payment",
-  description: "Opens payment screen",
-  category: .Native,
-  path: "/payment",
-  requiredCapabilities: [.UIAccess],
-  primitives: [.MobileUI(page: "/payment", component: nil)]
-)
-_ = runtime.sandbox.registerFeature(paymentFeature)
+// 3) Get sandbox reference
+let sandbox = runtime.sandbox
 
-// 3) Set a policy for that feature
-_ = runtime.sandbox.setPolicy("open_payment", SandboxSDK.Policy(
+// 4) Register Features and set Policies
+let camera = SandboxSDK.Feature(
+  id: "open_camera",
+  name: "Open Camera",
+  description: "Access device camera for photos",
+  category: .Native,
+  path: "/camera",
+  requiredCapabilities: [.UIAccess],
+  primitives: [.MobileUI(page: "/camera", component: "camera")]
+)
+_ = sandbox.registerFeature(camera)
+
+_ = sandbox.setPolicy("open_camera", SandboxSDK.Policy(
   requiresUserPresent: true,
   requiresExplicitConsent: true,
   sensitivity: .medium,
-  rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 5)
+  rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 10)
 ))
 
-// 4) (Optional) Attach a ConvoUI adapter to handle consent UI and message updates
-// runtime.setConvoUIAdapter(yourAdapter)
+// Optional (advanced): configure adapters
+// runtime.setNetworkAdapter(MyWebSocketNetworkAdapter(url: URL(string: "wss://...")!))
 
-// 5) Start a session – the runtime will automatically expose registered features
+// Start a session when your app is ready to converse
 let sessionId = UUID()
 runtime.openSession(sessionId: sessionId, agentId: UUID())
 ```
 
-Notes:
+To see a working end‑to‑end demo (with a simple CLI adapter and loopback networking), run:
 
-- When the agent proposes an action (e.g., `open_payment`), the Sandbox PDP will evaluate the policy. If explicit consent is required, your `ConvoUIAdapter` will receive `handleConsentRequest(...)` and can present UI to the user.
-
-### Consent UI in your ConvoUIAdapter
-
-Implement a minimal adapter to surface consent prompts to users and to forward their decision back to the runtime:
-
-```swift
-final class MyConvoAdapter: BaseConvoUIAdapter {
-  override func handleMessages(_ messages: [NeuronMessage]) {
-    // Update your UI (chat view) with latest messages
-  }
-
-  override func handleConsentRequest(
-    proposalId: UUID,
-    sessionId: UUID,
-    feature: String,
-    args: [String: Any]
-  ) {
-    // Present your UI (alert/sheet) asking user to approve/deny
-    let userApproved = true // result from your UI
-    context?.userProvidedConsent(messageId: proposalId, approved: userApproved)
-  }
-
-  override func didBind(sessionId: UUID) {
-    // Called when adapter is bound to a session
-  }
-}
-
-// Usage
-let adapter = MyConvoAdapter()
-runtime.setConvoUIAdapter(adapter)
+```bash
+cd finclip-neuron/examples/custom
+swift run
 ```
 
 ---
 
-## Network Adapters: Build and Use Your Own
+## 5. Sandbox Usage (Typed API, Manifest, PDP)
 
-NeuronKit talks to your agent server via a `NetworkAdapter`. The SDK includes these reference adapters out of the box:
-
-- `WebSocketNetworkAdapter` (mock WebSocket for local testing)
-- `URLSessionHTTPAdapter` (HTTP POST + polling)
-- `StarscreamWebSocketAdapter` (interface for Starscream-based WebSocket)
-- `LoopbackNetworkAdapter` (echo + directive simulation for demos)
-
-### Using built-in adapters
-
-- WebSocket (mock)
+- **Typed API (FeatureArgsSchema)**
+  - Define required/optional args and constraints for each Feature.
+  - The runtime validates agent-provided args against the schema before invocation.
 
 ```swift
-let ws = WebSocketNetworkAdapter(url: URL(string: "wss://your-server/ws"))
-let runtime = NeuronRuntime(config: config)
-runtime.setNetworkAdapter(ws)
-```
-
-- HTTP (URLSession)
-
-```swift
-let http = URLSessionHTTPAdapter(
-  baseURL: URL(string: "https://api.example.com")!,
-  pollingInterval: 2.0
+let exportFeature = SandboxSDK.Feature(
+  id: "export_report",
+  name: "Export Report",
+  description: "Export a report with a given format",
+  category: .Native,
+  path: "/report/export",
+  requiredCapabilities: [.UIAccess],
+  primitives: [.MobileUI(page: "/report/export", component: "format=csv&range=last30d")],
+  argsSchema: FeatureArgsSchema(
+    required: ["format", "range"],
+    properties: [
+      "format": FeatureArgSpec(type: .string, description: "Export format", enumVals: ["csv", "xlsx"]),
+      "range": FeatureArgSpec(type: .string, description: "Time range", pattern: "^(today|yesterday|last7d|last30d|mtd|ytd)$")
+    ]
+  )
 )
-let runtime = NeuronRuntime(config: config)
-runtime.setNetworkAdapter(http)
 ```
 
-- Starscream (3rd-party WebSocket)
+- **Manifest**
+  - You can bundle features/schemas/capabilities in a manifest and apply it at startup.
+
+- **Policies & PDP flow**
+  - Set per-feature policies with sensitivity, rate limits, and consent:
 
 ```swift
-// Requires adding Starscream dependency and enabling the real implementation
-let ws = StarscreamWebSocketAdapter(url: URL(string: "wss://api.example.com/ws")!)
-let runtime = NeuronRuntime(config: config)
-runtime.setNetworkAdapter(ws)
+_ = sandbox.setPolicy("open_camera", SandboxSDK.Policy(
+  requiresUserPresent: true,
+  requiresExplicitConsent: true,
+  sensitivity: .medium,
+  rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 10)
+))
 ```
 
-- Loopback (demo/testing)
-
-```swift
-let loop = LoopbackNetworkAdapter()
-let runtime = NeuronRuntime(config: config)
-runtime.setNetworkAdapter(loop)
-```
-
-### Implement your own adapter
-
-To build a custom adapter, subclass `BaseNetworkAdapter` and implement three key pieces:
-
-1) Connection lifecycle – override `start()` and `stop()` and call `updateState(...)` appropriately
-2) Outbound send – override `sendToNetworkComponent(_:)` and forward bytes to your network
-3) Inbound receive – call `handleInboundData(...)` with raw bytes (Data or String) when messages arrive
-
-Skeleton:
-
-```swift
-import Foundation
-
-final class MyNetworkAdapter: BaseNetworkAdapter {
-  private var isStarted = false
-
-  override func start() {
-    guard !isStarted else { return }
-    isStarted = true
-    updateState(.connecting)
-    // Connect to your transport...
-    updateState(.connected)
-  }
-
-  override func stop() {
-    isStarted = false
-    // Tear down connection
-    updateState(.disconnected)
-  }
-
-  override func sendToNetworkComponent(_ data: Any) {
-    guard let data = data as? Data, isStarted else { return }
-    // Write bytes to your transport
-  }
-
-  // If your library needs string/binary conversion, override these:
-  override func convertOutboundData(_ data: Data) -> Any { data }
-  override func convertInboundData(_ data: Any) -> Data? {
-    if let d = data as? Data { return d }
-    if let s = data as? String { return s.data(using: .utf8) }
-    return nil
-  }
-
-  // When data arrives from the network, call:
-  func onBytesFromNetwork(_ data: Data) {
-    handleInboundData(data)
-  }
-}
-```
-
-Tip: Start with `LoopbackNetworkAdapter` to validate your app wiring without a server; then switch to HTTP or WebSocket.
-
-### Adapter state and error handling
-
-All adapters should report connectivity via `updateState(...)` with:
-
-- `.connecting` → `.connected` → `.disconnected`
-- `.reconnecting` for transient issues
-- `.error(NetworkError)` for fatal/diagnostic cases
-
-See `URLSessionHTTPAdapter` for a robust implementation that handles connectivity tests, polling, and backoff on failures.
+- **Context during evaluation**
+  - Provide Device Context (timezone, device type, etc.) and App Context (current route, scenario) with each message. PDP considers these in decisions.
 
 ---
 
-## Supported Capabilities and Primitives
+## 6. Supported Features, Capabilities, and Primitives (Reference)
 
-This SDK follows the universal Sandbox spec for declaring app Features with required Capabilities and executable Primitives.
+Below is a reference list you can use directly without external documents.
 
-### Supported Capabilities (current)
+### Feature Categories
+
+- `Native` — App-native functionality (navigation, dialogs, media, notifications, etc.)
+- `MiniApp` — Embedded micro-app/miniapp routes and JS APIs
+- `IoTDevice` — Smart home/device control and automations
+- `External` — Delegation to external third-party apps
+- `SystemApp` — OS-provided apps (Calendar, Mail, etc.)
+- `Web` — Browser/web runtime invocations
+
+### Capabilities
 
 - `UIAccess`
 - `Network`
@@ -456,16 +235,14 @@ This SDK follows the universal Sandbox spec for declaring app Features with requ
 - `NFC`
 - `Sensors`
 
-Reference: `sandbox/docs/spec.md` section 3.2 (CapabilityType).
-
-### Supported Primitives (current subset)
+### Primitives (common subset)
 
 Mobile UI & Navigation:
 
 - `MobileUI { page, component? }`
 - `ShowDialog { title, message }`
 
-Mini-App control:
+MiniApp control:
 
 - `MiniApp { url_path, js_api[] }`
 - `InvokeJSAPI { api_name, params }`
@@ -520,80 +297,87 @@ Common cross-domain:
 
 - `ValidateUser { token }`, `CheckCapability { permission }`, `GetContext { key }`, `LogAudit { action, result }`
 
-Note: Implementations may enable a subset per platform. See `sandbox/docs/spec.md` for the complete roadmap list.
-
-For the most complete, always up-to-date list used by this SDK, also see `neuronkit/README.md` ("Supported Capabilities and Primitives").
+Note: Implementations may enable a subset per platform.
 
 ---
 
-## Supported Feature Categories
+## 7. Network Adapters (for custom implementation)
 
-Features are grouped into categories to reflect where/how they execute (see `sandbox/docs/spec.md` and `sandbox/universal/src/types.rs`, FeatureCategory):
+Implement the `NetworkAdapter` protocol to bring your own transport.
 
-- `Native` – App-native functionality (navigation, dialogs, media, notifications, etc.)
-- `MiniApp` – Embedded micro-apps/mini-app routes and their JS APIs
-- `IoTDevice` – Smart home / device control and automations
-- `External` – Delegation to external third-party apps
-- `SystemApp` – OS-provided apps (Calendar, Mail, etc.)
-- `Web` – Browser/web runtime invocations
+Required surface:
 
-You declare the category on each `Feature` (typed API supports: `.Native | .MiniApp | .IoTDevice | .External | .SystemApp | .Web`).
+- Properties: `onOutboundData: ((Data) -> Void)?`, `onStateChange: ((NetworkState) -> Void)?`, `inboundDataHandler: ((Data) -> Void)?`
+- Publishers: `inbound: AnyPublisher<Data, Never>`, `state: AnyPublisher<NetworkState, Never>`
+- Methods: `start()`, `stop()`, `send(_ data: Data)`
 
-Tip: Categories do not replace capabilities. Always specify required capabilities (e.g., `UIAccess`, `Network`) and map to appropriate primitives.
+Guidance:
+
+- Call `onStateChange?` as you transition through `.connecting`, `.connected`, `.reconnecting`, `.disconnected`, `.error`.
+- Call `inboundSubject.send(data)` and `inboundDataHandler?(data)` when bytes arrive from the server.
+- Calling `onOutboundData?(data)` is optional for observability. Avoid it in loopback/mock paths to prevent re-entrancy.
+
+See examples:
+
+- `examples/custom/Sources/custom/adapters/WebSocketNetworkAdapter.swift`
+- `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
+- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift` (synthetic, no real network)
 
 ---
 
-## Policy Flow (PDP pattern)
+## 8. ConvoUI Adapters (for custom implementation)
 
-The iOS layer is a PDP (Policy Decision Point). Your app is the PEP (Policy Enforcement Point):
+A ConvoUI adapter bridges your UI with NeuronKit.
 
-1) Initialize and apply a manifest (or register dynamically), including features, required capabilities, and policies.
-2) Call `evaluateFeature(name,args,context)`.
-   - Returns `.allowed | .ask | .denied | .rateLimited` with optional `reason` and `reset_at`.
-3) If `.allowed`, your host code executes the action and then calls `recordUsage(name)` to update rate limits and audit.
+- It forwards user input into the runtime (so your app does not call `sendMessage` directly in typical integrations).
+- It renders inbound messages and system notifications.
+- It shows consent prompts when PDP requires explicit approval.
 
-Swift example:
+### Session-Centric Binding (Recommended)
+
+The new approach allows you to bind/unbind UI adapters to specific sessions dynamically:
 
 ```swift
-// 1) Initialize and register
-SandboxSDK.initialize()
-let ok = SandboxSDK.applyManifest([
-  "features": [[
-    "name": "exportPortfolioCSV",
-    "category": "Native",
-    "path": "/export",
-    "required_capabilities": ["Network"],
-    "primitives": [["type": "NetworkOp", "url": "https://api.example.com/export", "method": "GET"]]
-  ]],
-  "policies": [
-    "exportPortfolioCSV": [
-      "requires_user_present": true,
-      "requires_explicit_consent": true,
-      "sensitivity": "high"
-    ]
-  ]
-])
+// Open a session
+let sessionId = UUID()
+runtime.openSession(sessionId: sessionId, agentId: UUID())
 
-// 2) Evaluate → host executes → record usage
-let decision = try SandboxSDK.evaluateFeature("exportPortfolioCSV", args: [:], context: nil)
-if decision.status == .allowed {
-  // Perform the action
-  _ = try SandboxSDK.recordUsage("exportPortfolioCSV")
-}
+// Bind UI adapter to this specific session
+let adapter = MyConvoAdapter()
+runtime.bindUI(adapter, toSession: sessionId)
+
+// Later: unbind when UI is no longer active (e.g., view disappears)
+runtime.unbindUI(fromSession: sessionId)
+
+// Close session when conversation ends
+runtime.closeSession(sessionId: sessionId)
 ```
 
-For ad-hoc registration without a full manifest, use `registerFeature` and `setPolicies`. See `sandbox/docs/ios_sandboxsdk_developer_guide.md` for more details.
+### Multiple Sessions Support
 
----
+You can now have multiple active sessions with different UI adapters:
 
-## Requirements
+```swift
+// Create sessions for different contexts
+let supportSessionId = UUID()
+let salesSessionId = UUID()
 
-- iOS 14+
-- Swift 6.0+
-- Xcode 16.1+
+runtime.openSession(sessionId: supportSessionId, agentId: UUID())
+runtime.openSession(sessionId: salesSessionId, agentId: UUID())
+
+// Bind different adapters to each session
+runtime.bindUI(supportAdapter, toSession: supportSessionId)
+runtime.bindUI(salesAdapter, toSession: salesSessionId)
+```
+
+Examples:
+
+- `examples/custom/Sources/custom/CliConvoAdapter.swift`
+- `examples/custom/Sources/custom/CustomDemoApp.swift`
+- `examples/ios-sample/Sources/App/MultiSessionExample.swift`
 
 ---
 
 ## License
 
-Copyright 2023 Finclip / Geeksfino.
+See LICENSE in the repository.

@@ -228,13 +228,11 @@ enum CustomDemoApp {
       rateLimit: SandboxSDK.RateLimit(unit: .minute, max: 30)
     ))
     
-    // 5. Set the adapter (this automatically handles all message/event subscriptions)
-    neuronKit.setConvoUIAdapter(uiAdapter)
-    
-    // 6. Start session (adapter automatically binds)
+    // 5. Open conversation and bind UI (fluent API)
     let sessionId = UUID()
-    neuronKit.openSession(sessionId: sessionId, agentId: UUID())
-
+    let convo = neuronKit.openConversation(sessionId: sessionId, agentId: UUID())
+    convo.bindUI(uiAdapter)
+    
     // Keep the process alive for interactive CLI input; exit with Ctrl+C
     // Use an async-friendly infinite sleep loop to avoid Swift 6 warnings
     while true {
