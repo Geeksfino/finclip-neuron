@@ -1,5 +1,7 @@
 # FinClip Neuron — Developer Guide
 
+> 📖 **Language**: [English](README.md) | [中文](README.zh.md)
+
 ## 1. Introduction
 
 FinClip Neuron provides a runtime and SDKs to build agent-driven experiences safely on mobile and desktop. It combines:
