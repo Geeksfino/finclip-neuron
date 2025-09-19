@@ -22,8 +22,8 @@ let package = Package(
     ),
     .binaryTarget(
       name: "NeuronKit",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-vab63761-swift6_0/NeuronKit.xcframework.zip",
-      checksum: "20670c28a65d6a62c5ff9bb958d4857f9cfa8cc6ec703c05f89500030764493f"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-v184437e-swift6_0/NeuronKit.xcframework.zip",
+      checksum: "4baa7758adfe9356ed96c19c5f791327703ee1ac11940695f5aa15fd73d5cbe4"
     )
   ]
 )
