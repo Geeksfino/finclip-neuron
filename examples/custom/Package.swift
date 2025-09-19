@@ -8,7 +8,7 @@ let package = Package(
     .executable(name: "CustomDemoApp", targets: ["CustomDemoApp"])
   ],
   dependencies: [
-    .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main")
+    .package(url: "https://github.com/Geeksfino/finclip-neuron.git", branch: "main-swift6_0")
   ],
   targets: [
     .executableTarget(
@@ -19,10 +19,7 @@ let package = Package(
         .product(name: "convstorelib", package: "finclip-neuron")
       ],
       path: "Sources/custom",
-      exclude: [
-        // Use adapters shipped in NeuronKit; exclude local copies
-        "adapters"
-      ]
+      exclude: []
     )
   ]
 )

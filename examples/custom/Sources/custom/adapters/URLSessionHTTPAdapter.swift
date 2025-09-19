@@ -6,7 +6,7 @@ import NeuronKit
 
 /// Example NetworkAdapter implementation using URLSession for HTTP-based networking.
 /// This demonstrates how to integrate HTTP polling and posting with NeuronKit.
-public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
+public final class MyURLSessionHTTPAdapter: NetworkAdapter {
   private let session: URLSession
   private let baseURL: URL
   private let pollingInterval: TimeInterval
@@ -15,6 +15,17 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
   
   private var pollingTask: Task<Void, Never>?
   private var isStarted = false
+  
+  // NetworkAdapter required callback properties
+  public var onOutboundData: ((Data) -> Void)?
+  public var onStateChange: ((NetworkState) -> Void)?
+  public var inboundDataHandler: ((Data) -> Void)?
+  
+  private let inboundSubject = PassthroughSubject<Data, Never>()
+  private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
+  
+  public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
+  public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
   
   /// Initialize the adapter with HTTP configuration
   public init(
@@ -29,16 +40,16 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
     self.pollingInterval = pollingInterval
     self.sendEndpoint = sendEndpoint
     self.pollEndpoint = pollEndpoint
-    super.init()
   }
   
   // MARK: - NetworkAdapter Implementation
   
-  public override func start() {
+  public func start() {
     guard !isStarted else { return }
     
     isStarted = true
-    updateState(.connecting)
+    stateSubject.send(.connecting)
+    onStateChange?(.connecting)
     
     // Test connectivity with a simple request
     Task {
@@ -46,20 +57,21 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
     }
   }
   
-  public override func stop() {
+  public func stop() {
     isStarted = false
     pollingTask?.cancel()
     pollingTask = nil
-    updateState(.disconnected)
+    stateSubject.send(.disconnected)
+    onStateChange?(.disconnected)
     print("URLSessionHTTPAdapter: Stopped")
   }
   
-  public override func sendToNetworkComponent(_ data: Any) {
-    guard isStarted,
-          let data = data as? Data else { 
+  public func send(_ data: Data) {
+    guard isStarted else { 
       print("URLSessionHTTPAdapter: Cannot send data - not started or invalid data type")
       return 
     }
+    onOutboundData?(data)
     
     Task {
       await sendMessage(data)
@@ -80,7 +92,8 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
       
       if let httpResponse = response as? HTTPURLResponse {
         if httpResponse.statusCode == 200 {
-          updateState(.connected)
+          stateSubject.send(.connected)
+          onStateChange?(.connected)
           startPolling()
           print("URLSessionHTTPAdapter: Connected successfully")
         } else {
@@ -88,13 +101,15 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
             code: "http_error",
             message: "Server returned status code \(httpResponse.statusCode)"
           )
-          updateState(.error(error))
+          stateSubject.send(.error(error))
+          onStateChange?(.error(error))
         }
       }
     } catch {
       // If health endpoint doesn't exist, assume we're connected and start polling
       print("URLSessionHTTPAdapter: Health check failed, assuming connected: \(error)")
-      updateState(.connected)
+      stateSubject.send(.connected)
+      onStateChange?(.connected)
       startPolling()
     }
   }
@@ -156,41 +171,37 @@ public final class URLSessionHTTPAdapter: BaseNetworkAdapter {
       if let httpResponse = response as? HTTPURLResponse {
         if httpResponse.statusCode == 200 {
           if !data.isEmpty {
-            handleInboundData(data)
+            inboundSubject.send(data)
+            inboundDataHandler?(data)
           }
         } else if httpResponse.statusCode >= 500 {
           let error = NetworkError(
             code: "server_error",
             message: "Server error: \(httpResponse.statusCode)"
           )
-          updateState(.error(error))
+          stateSubject.send(.error(error))
+          onStateChange?(.error(error))
         }
       }
     } catch {
       if isStarted {
         print("URLSessionHTTPAdapter: Polling error: \(error)")
-        updateState(.reconnecting)
+        stateSubject.send(.reconnecting)
+        onStateChange?(.reconnecting)
         try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
         if isStarted {
-          updateState(.connected)
+          stateSubject.send(.connected)
+          onStateChange?(.connected)
         }
       }
     }
   }
   
-  // MARK: - Data Conversion
-  public override func convertOutboundData(_ data: Data) -> Any {
-    return data // HTTP expects Data for JSON
-  }
-  
-  public override func convertInboundData(_ data: Any) -> Data? {
-    return data as? Data
-  }
 }
 
 // MARK: - Convenience
 
-extension URLSessionHTTPAdapter {
+extension MyURLSessionHTTPAdapter {
   public convenience init(
     baseURL: URL,
     apiKey: String? = nil,

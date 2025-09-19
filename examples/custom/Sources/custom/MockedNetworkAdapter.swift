@@ -10,20 +10,30 @@ class MockAgentNetworkAdapter: NetworkAdapter {
   private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
   private var currentSessionId: UUID?
   
+  // MARK: NetworkAdapter required callback properties
+  // NeuronKit sets these so the adapter can report events and hand data back in
+  var onOutboundData: ((Data) -> Void)?
+  var onStateChange: ((NetworkState) -> Void)?
+  var inboundDataHandler: ((Data) -> Void)?
+  
   public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
   public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
   
   func start() {
     stateSubject.send(.connected)
+    onStateChange?(.connected)
   }
   
   func stop() {
     stateSubject.send(.disconnected)
+    onStateChange?(.disconnected)
   }
   
   func send(_ data: Data) {
     // In a real adapter, this would send over WebSocket/HTTP
     print("📡 [MockNetwork] Sending to agent: \(data.count) bytes")
+    // Signal that data is being sent out over the network (observability hook)
+    onOutboundData?(data)
     
     // Extract session ID from outbound message for response
     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -54,6 +64,8 @@ class MockAgentNetworkAdapter: NetworkAdapter {
       // This is the key: NetworkAdapter publishes data → NeuronKit receives it
       print("📨 [MockNetwork] Publishing agent directive to NeuronKit")
       inboundSubject.send(data)
+      // Also invoke the inboundDataHandler callback if set
+      inboundDataHandler?(data)
     }
   }
 }

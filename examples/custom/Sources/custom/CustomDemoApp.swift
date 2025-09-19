@@ -70,8 +70,8 @@ enum CustomDemoApp {
     )
     let neuronKit = NeuronRuntime(config: config)
     
-    // Use LoopbackNetworkAdapter to show proper end-to-end flow without a server
-    let loopback = LoopbackNetworkAdapter()
+    // Use local MyLoopbackNetworkAdapter (namespaced in CustomAdapters) to show proper end-to-end flow without a server
+    let loopback = MyLoopbackNetworkAdapter()
     neuronKit.setNetworkAdapter(loopback)
     
     // 4. Register multiple features with different policies

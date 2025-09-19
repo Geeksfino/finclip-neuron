@@ -5,21 +5,32 @@ import NeuronKit
 /// WebSocket adapter implementing the NetworkAdapter protocol.
 /// This is a mock implementation that simulates WebSocket behavior for testing purposes.
 /// In a real implementation, this would integrate with an actual WebSocket library.
-public final class WebSocketNetworkAdapter: BaseNetworkAdapter {
+public final class MyWebSocketNetworkAdapter: NetworkAdapter {
   private let url: URL?
   private var isStarted = false
-  
-  public init(url: URL? = nil) { 
+
+  // NetworkAdapter required callback properties
+  public var onOutboundData: ((Data) -> Void)?
+  public var onStateChange: ((NetworkState) -> Void)?
+  public var inboundDataHandler: ((Data) -> Void)?
+
+  private let inboundSubject = PassthroughSubject<Data, Never>()
+  private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
+
+  public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
+  public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
+
+  public init(url: URL? = nil) {
     self.url = url
-    super.init()
   }
 
-  public override func start() {
+  public func start() {
     guard !isStarted else { return }
     isStarted = true
     
     // Simulate connection process with enhanced error handling
-    updateState(.connecting)
+    stateSubject.send(.connecting)
+    onStateChange?(.connecting)
     
     // Simulate potential connection scenarios
     DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) { [weak self] in
@@ -32,24 +43,28 @@ public final class WebSocketNetworkAdapter: BaseNetworkAdapter {
           message: "Failed to connect to WebSocket server",
           underlyingError: NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
         )
-        self.updateState(.error(error))
+        self.stateSubject.send(.error(error))
+        self.onStateChange?(.error(error))
       } else {
-        self.updateState(.connected)
+        self.stateSubject.send(.connected)
+        self.onStateChange?(.connected)
       }
     }
   }
 
-  public override func stop() {
+  public func stop() {
     isStarted = false
-    updateState(.disconnected)
+    stateSubject.send(.disconnected)
+    onStateChange?(.disconnected)
   }
 
-  public override func sendToNetworkComponent(_ data: Any) {
-    guard let data = data as? Data, isStarted else { 
+  public func send(_ data: Data) {
+    guard isStarted else { 
       // Log error but don't propagate (NeuronKit handles retries)
       print("[WebSocket] Attempted to send data while adapter is not started")
       return 
     }
+    onOutboundData?(data)
     
     // Simulate network send
     // In a real implementation, this would send data via WebSocket
@@ -62,34 +77,16 @@ public final class WebSocketNetworkAdapter: BaseNetworkAdapter {
       let ack: [String: String] = ["ack_for": idStr]
       if let ackData = try? JSONSerialization.data(withJSONObject: ack) {
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) { [weak self] in
-          self?.handleInboundData(ackData)
+          self?.inboundSubject.send(ackData)
+          self?.inboundDataHandler?(ackData)
         }
       }
     }
     
     // Then echo back as if agent replied
     DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [weak self] in
-      self?.handleInboundData(data)
-    }
-  }
-  
-  // MARK: - Data Conversion (Override if needed for specific WebSocket format)
-  
-  public override func convertOutboundData(_ data: Data) -> Any {
-    // Default implementation passes Data through
-    // Override this if your WebSocket library expects String or specific format
-    return data
-  }
-  
-  public override func convertInboundData(_ data: Any) -> Data? {
-    // Handle different data types that might come from WebSocket
-    if let data = data as? Data {
-      return data
-    } else if let string = data as? String {
-      return string.data(using: .utf8)
-    } else {
-      print("[WebSocket] Received unsupported data type: \(type(of: data))")
-      return nil
+      self?.inboundSubject.send(data)
+      self?.inboundDataHandler?(data)
     }
   }
 }
