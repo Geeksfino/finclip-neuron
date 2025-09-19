@@ -1,5 +1,7 @@
 # FinClip Neuron — 开发者指南（中文）
 
+ 📖 **语言**: [English](README.md) | [中文](README.zh.md)
+
 ## 1. 介绍
 
 FinClip Neuron 帮助你在移动端与桌面端安全地构建“智能体驱动”的体验。它包含：
