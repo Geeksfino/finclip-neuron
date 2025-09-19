@@ -338,19 +338,18 @@ A ConvoUI adapter bridges your UI with NeuronKit.
 The new approach allows you to bind/unbind UI adapters to specific sessions dynamically:
 
 ```swift
-// Open a session
-let sessionId = UUID()
-runtime.openSession(sessionId: sessionId, agentId: UUID())
+// Open a conversation
+let convo = runtime.openConversation(agentId: UUID())
 
-// Bind UI adapter to this specific session
+// Bind UI adapter to this specific conversation
 let adapter = MyConvoAdapter()
-runtime.bindUI(adapter, toSession: sessionId)
+convo.bindUI(adapter)
 
 // Later: unbind when UI is no longer active (e.g., view disappears)
-runtime.unbindUI(fromSession: sessionId)
+convo.unbindUI()
 
-// Close session when conversation ends
-runtime.closeSession(sessionId: sessionId)
+// Close conversation when done
+convo.close()
 ```
 
 ### Multiple Sessions Support
@@ -358,16 +357,17 @@ runtime.closeSession(sessionId: sessionId)
 You can now have multiple active sessions with different UI adapters:
 
 ```swift
-// Create sessions for different contexts
-let supportSessionId = UUID()
-let salesSessionId = UUID()
+// Create conversations for different contexts
+let supportConvo = runtime.openConversation(agentId: UUID())
+let salesConvo = runtime.openConversation(agentId: UUID())
 
-runtime.openSession(sessionId: supportSessionId, agentId: UUID())
-runtime.openSession(sessionId: salesSessionId, agentId: UUID())
+// Bind different adapters to each conversation
+supportConvo.bindUI(supportAdapter)
+salesConvo.bindUI(salesAdapter)
 
-// Bind different adapters to each session
-runtime.bindUI(supportAdapter, toSession: supportSessionId)
-runtime.bindUI(salesAdapter, toSession: salesSessionId)
+// Later: close conversations when done
+supportConvo.close()
+salesConvo.close()
 ```
 
 Examples:

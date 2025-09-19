@@ -249,18 +249,17 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 
 ```swift
 // 打开会话
-let sessionId = UUID()
-runtime.openSession(sessionId: sessionId, agentId: UUID())
+let convo = runtime.openConversation(agentId: UUID())
 
 // 将 UI 适配器绑定到此特定会话
 let adapter = MyConvoAdapter()
-runtime.bindUI(adapter, toSession: sessionId)
+convo.bindUI(adapter)
 
 // 稍后：当 UI 不再活跃时解绑（如视图消失）
-runtime.unbindUI(fromSession: sessionId)
+convo.unbindUI()
 
 // 对话结束时关闭会话
-runtime.closeSession(sessionId: sessionId)
+convo.close()
 ```
 
 ### 多会话支持
@@ -269,15 +268,16 @@ runtime.closeSession(sessionId: sessionId)
 
 ```swift
 // 为不同上下文创建会话
-let supportSessionId = UUID()
-let salesSessionId = UUID()
-
-runtime.openSession(sessionId: supportSessionId, agentId: UUID())
-runtime.openSession(sessionId: salesSessionId, agentId: UUID())
+let supportConvo = runtime.openConversation(agentId: UUID())
+let salesConvo = runtime.openConversation(agentId: UUID())
 
 // 将不同适配器绑定到各自会话
-runtime.bindUI(supportAdapter, toSession: supportSessionId)
-runtime.bindUI(salesAdapter, toSession: salesSessionId)
+supportConvo.bindUI(supportAdapter)
+salesConvo.bindUI(salesAdapter)
+
+// 稍后：关闭会话
+supportConvo.close()
+salesConvo.close()
 ```
 
 示例：
