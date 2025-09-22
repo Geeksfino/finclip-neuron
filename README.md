@@ -8,7 +8,7 @@ FinClip Neuron provides a runtime and SDKs to build agent‑driven experiences s
 
 - Capability Model‑based sandbox with fine‑grained controls (least privilege, user consent, rate limits) to let cloud agents orchestrate local functions under user permission, enabling Human‑in‑the‑Loop automation.
 - A conversation runtime (NeuronKit) that turns agent proposals into safe, auditable actions.
-- Device‑side context collection (e.g., location, time/schedule, network, environment, and more than a dozen categories) to accompany user intent and help agents infer intent for smarter automation. See: [`context.md`](context.md).
+- Device‑side context collection (e.g., location, time/schedule, network, environment, and more than a dozen categories) to accompany user intent and help agents infer intent for smarter automation. See: [`Device-side Context`](docs/context.md).
 - Multi‑scene conversation management to open and continue sessions anywhere in your app, layering conversational UX on top of traditional touch/mouse interactions for seamless scene‑aware experiences, converging clickstream with dialog stream seamlessly
 - Integration with a cloud Context Engine to manage user/device/app/scene data and multi‑form memories (Semantic, Short‑term, Long‑term, Episodic, Procedural), enabling better user understanding and smarter automation.
 
@@ -426,7 +426,7 @@ NeuronKit enriches each outbound message with device and app context to help you
 
 Quick links:
 
-- [Full guide: `context.md`](context.md)
+- [Full guide: `Device-side Context`](docs/context.md)
 
 These documents include update policies, quick-start samples, the full provider reference (standard / advanced / inferred), and downstream parsing guidance.
 
