@@ -322,6 +322,75 @@ salesConvo.close()
 
 ---
 
+## 10. Context provider（设备与应用上下文）
+
+Context provider 用于为出站消息自动补充设备与应用上下文，便于 PDP 策略做更准确的决策（例如：按时段限流、根据网络质量调整交互、在敏感场景要求显式同意等）。
+
+### 总览
+
+- provider 是轻量组件，按策略（发送时/按 TTL/前台刷新）提供值。
+- 值会合并到出站信封的 `additionalContext: [String: String]` 以及强类型的 `DeviceContext` 字段中。
+- 你在创建 `NeuronKitConfig` 时注册 provider。
+
+### 刷新策略（policies）
+
+- `.onMessageSend` — 每次发送消息时计算最新值。
+- `.every(ttl)` — 计算后在 TTL 内复用缓存。
+- `.onAppForeground` — App 进入前台时计算（或调用 `await runtime.refreshContextOnForeground()` 时执行）。
+
+### 快速上手
+
+```swift
+import NeuronKit
+
+let quality  = NetworkQualityProvider(updatePolicy: .onMessageSend)
+let calendar = CalendarPeekProvider(updatePolicy: .every(300))
+let routine  = RoutineInferenceProvider(updatePolicy: .every(900))
+let urgency  = UrgencyEstimatorProvider(updatePolicy: .onMessageSend)
+
+let cfg = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device", userId: "demo-user",
+  contextProviders: [quality, calendar, routine, urgency]
+)
+let runtime = NeuronRuntime(config: cfg)
+
+// 通过 Conversation 发送消息时，SDK 会自动富集上下文
+let convo = runtime.openConversation(agentId: UUID())
+try await convo.sendMessage("Hello")
+```
+
+### provider 分类（快速参考）
+
+- 标准provider（映射到 `DeviceContext`）：
+  - `ScreenStateProvider` → `screenOn`, `orientation`
+  - `ThermalStateProvider` → `thermalState`
+  - `DeviceEnvironmentProvider` → `locale`, `is24Hour`
+  - `TimeBucketProvider` → `daySegment`, `weekday`
+
+- 高级provider（附加上下文 key-value）：
+  - `NetworkQualityProvider` → `network.quality`（good|fair|none|unknown）
+  - `CalendarPeekProvider` → `social.calendar_next_event`（true|false）、`social.calendar_next_event.start_ts`（epoch 秒）
+  - `BarometerProvider`（仅 iOS）→ `env.pressure_kPa`（数值字符串）
+
+- 衍生provider（可选，推断的附加上下文）：
+  - `RoutineInferenceProvider` → `inferred.routine`, `inferred.routine.confidence`
+  - `UrgencyEstimatorProvider` → `inferred.urgency`, `inferred.urgency.rationale`
+
+说明：
+
+- 附加上下文建议仅使用粗粒度、隐私友好的字符串/数值，避免包含 PII。
+- provider 不会主动触发系统权限弹窗；在未授权或不可用时返回 `nil`。请在 App 中先请求权限，再注册相关 provider。
+
+### 下游读取（后端/日志）
+
+在你的服务端或遥测流水线中解析出站消息信封：
+
+- 直接读取 `DeviceContext` 字段（如 timezone、deviceType、networkType）。
+- 读取附加上下文键值，如 `network.quality`、`social.calendar_next_event`、`inferred.urgency` 等。
+
+---
+
 ## 许可
 
 参见仓库中的 LICENSE。

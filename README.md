@@ -413,6 +413,75 @@ Examples:
 
 ---
 
+## 10. Context Providers (Device & App Context)
+
+Context providers enrich outbound messages with device and application context so your PDP policies can make better decisions (e.g., rate-limiting by time of day, adjusting UX by network quality, requiring consent in sensitive situations).
+
+### Overview
+
+- Context providers are lightweight components that emit values at specific times (on send, by TTL, or on app foreground).
+- Values are merged into the outbound envelope via `additionalContext: [String: String]` and strongly-typed `DeviceContext` fields.
+- You register providers when creating `NeuronKitConfig`.
+
+### Update policies
+
+- `.onMessageSend` — compute fresh value each send.
+- `.every(ttl)` — compute and cache value for the TTL duration.
+- `.onAppForeground` — compute when the app foregrounds (or when you call `await runtime.refreshContextOnForeground()`).
+
+### Quick start
+
+```swift
+import NeuronKit
+
+let quality  = NetworkQualityProvider(updatePolicy: .onMessageSend)
+let calendar = CalendarPeekProvider(updatePolicy: .every(300))
+let routine  = RoutineInferenceProvider(updatePolicy: .every(900))
+let urgency  = UrgencyEstimatorProvider(updatePolicy: .onMessageSend)
+
+let cfg = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device", userId: "demo-user",
+  contextProviders: [quality, calendar, routine, urgency]
+)
+let runtime = NeuronRuntime(config: cfg)
+
+// When sending via a Conversation, the SDK enriches context automatically
+let convo = runtime.openConversation(agentId: UUID())
+try await convo.sendMessage("Hello")
+```
+
+### Provider taxonomy (quick reference)
+
+- Mapped into `DeviceContext`:
+  - `ScreenStateProvider` → `screenOn`, `orientation`
+  - `ThermalStateProvider` → `thermalState`
+  - `DeviceEnvironmentProvider` → `locale`, `is24Hour`
+  - `TimeBucketProvider` → `daySegment`, `weekday`
+
+- Additional context providers (key-value pairs):
+  - `NetworkQualityProvider` → `network.quality` (good|fair|none|unknown)
+  - `CalendarPeekProvider` → `social.calendar_next_event` (true|false), `social.calendar_next_event.start_ts` (epoch seconds)
+  - `BarometerProvider` (iOS only) → `env.pressure_kPa` (numeric string)
+
+- Inferred additional context (optional):
+  - `RoutineInferenceProvider` → `inferred.routine`, `inferred.routine.confidence`
+  - `UrgencyEstimatorProvider` → `inferred.urgency`, `inferred.urgency.rationale`
+
+Notes:
+
+- Additional context is designed for coarse, privacy-safe strings/numbers. Avoid PII.
+- Providers never prompt for OS permissions; they return `nil` when unavailable or not permitted. Request permissions in your app before registering sensitive providers.
+
+### Reading context downstream
+
+On your server or telemetry pipeline, parse the outbound message envelope. You can:
+
+- Read `DeviceContext` fields directly (e.g., timezone, deviceType, networkType).
+- Read additional context keys like `network.quality`, `social.calendar_next_event`, `inferred.urgency`, etc.
+
+---
+
 ## License
 
 See LICENSE in the repository.
