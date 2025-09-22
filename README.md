@@ -4,12 +4,13 @@
 
 ## 1. Introduction
 
-FinClip Neuron provides a runtime and SDKs to build agent-driven experiences safely on mobile and desktop. It combines:
+FinClip Neuron provides a runtime and SDKs to build agent‑driven experiences safely on mobile, desktop, and IoT devices. It combines:
 
-- A capabilities-based sandbox with fine‑grained policies (least privilege, consent, rate limits).
+- Capability Model‑based sandbox with fine‑grained controls (least privilege, user consent, rate limits) to let cloud agents orchestrate local functions under user permission, enabling Human‑in‑the‑Loop automation.
 - A conversation runtime (NeuronKit) that turns agent proposals into safe, auditable actions.
-- Pluggable adapters for networking (bring your own transport) and UI (bridge your UI to the runtime).
-- Built-in message storage with persistence enabled by default (configurable).
+- Device‑side context collection (e.g., location, time/schedule, network, environment, and more than a dozen categories) to accompany user intent and help agents infer intent for smarter automation. See: [`context.md`](context.md).
+- Multi‑scene conversation management to open and continue sessions anywhere in your app, layering conversational UX on top of traditional touch/mouse interactions for seamless scene‑aware experiences, converging clickstream with dialog stream seamlessly
+- Integration with a cloud Context Engine to manage user/device/app/scene data and multi‑form memories (Semantic, Short‑term, Long‑term, Episodic, Procedural), enabling better user understanding and smarter automation.
 
 This repository publishes NeuronKit and example apps, and hosts binary XCFrameworks for SandboxSDK and convstorelib.
 
@@ -20,7 +21,7 @@ This repository publishes NeuronKit and example apps, and hosts binary XCFramewo
 
 ## 2. Core Concepts
 
-- **Features → Capabilities → Primitives**
+- **Capability Model-based Sandbox: Features → Capabilities → Primitives**
   - A Feature describes a high-level function (e.g., "Open Camera").
   - Each Feature requires one or more Capabilities (e.g., UI access, device sensor access).
   - Capabilities are exercised by concrete Primitives (e.g., `MobileUI(page:"/camera", component:"camera")`).

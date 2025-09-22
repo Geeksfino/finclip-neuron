@@ -4,26 +4,24 @@
 
 ## 1. 介绍
 
-FinClip Neuron 帮助你在移动端与桌面端安全地构建“智能体驱动”的体验。它包含：
+FinClip Neuron 帮助你在移动端、桌面端、物联网设备上安全地构建“智能体驱动”的体验。它包含：
 
-- 基于能力的沙箱（Sandbox），提供最小权限、用户同意、频率限制等精细控制。
-- 会话运行时（NeuronKit），将智能体的提案（指令）安全地转化为可审计的动作。
-- 可插拔的网络适配器与 ConvoUI 适配器，方便你接入自有网络传输与 UI 桥接。
-- 内置消息存储，默认开启持久化（可配置）。
+- 基于能力模型（Capability Model）的安全沙箱（Sandbox），提供最小权限、用户同意、频率限制等精细控制，让云端智能体能在用户许可下，对本地功能进行调度，实现人机协同（Human in the loop）的自动化
+- 会话运行时（NeuronKit），将智能体的提案（指令）安全地转化为可审计的动作
+- 结合设备端场景数据例如地理位置、时间日程、网络、环境等不下十多类（[设备端上下文](context.zh.md)）数据内容，协助智能体识别用户意向，实现更智能的自动化
+- 多场景的会话管理，支持在App内任何页面下开启和继续会话，在传统的触控型、鼠标点击型的人机交互方式上，叠加AI时代的会话型人机交互方式，让当前会话与当前UI页面达成场景融合，实现更流畅的交互体验，达成“点击流”与“会话流”的“合流”
+- 接入云端上下文管理引擎（Context Engine），对用户、设备、应用、场景等多维度数据进行管理，实现以用户为中心的跨设备、跨场景、跨会话的多形态记忆 -如语义记忆（Semantic Memory）、短期记忆（Short-term Memory）、长期记忆（Long-term Memory）、场景记忆（Episodic Memory）、程序记忆（Procedural Memory）等，让所对接的智能体能更好地理解用户，实现更智能的自动化
 
 本仓库发布 NeuronKit 以及示例应用，并提供 SandboxSDK 与 convstorelib 的二进制依赖。
 
 - 推荐路径：
   - `finclip-neuron/examples/custom/` — CLI 快速上手示例，可直接 `swift run` 运行。
-  - `neuronkit/docs/spec.md` — 概念规范与运行机制说明。
 
 ---
 
 ## 2. 核心概念
 
-以下概念与 `neuronkit/docs/spec.md` 保持一致。
-
-- **Feature → Capability → Primitive**
+- **基于能力模型的沙盒：Feature → Capability → Primitive**
   - Feature 表达高层功能（如“打开相机”）。
   - 每个 Feature 需要一个或多个 Capability（如 UI 访问、设备传感器访问）。
   - Capability 最终由具体 Primitive 执行（如 `MobileUI(page:"/camera", component:"camera")`）。
@@ -334,7 +332,7 @@ NeuronKit 会为每条出站消息自动富集设备与应用上下文，帮助 
 
 快速链接：
 
-- [完整指南](context.zh.md)
+- [设备端的上下文](context.zh.md)
   
 上述文档包含刷新策略、快速上手示例、完整的 provider 参考（标准/高级/衍生），以及后端解析指引。
 
