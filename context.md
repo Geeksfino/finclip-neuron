@@ -38,11 +38,22 @@ To feed context into the system, you register one or more **Context Providers** 
 
 ### Update Policies
 
-You control how often a provider fetches data using an `updatePolicy`:
+You control how often a provider fetches data using an `updatePolicy`. Choose based on freshness needs, battery/CPU impact, and UX expectations:
 
-- `.onMessageSend`: Fetches a fresh value every time a message is sent. Ideal for highly dynamic context like network quality.
-- `.every(ttl)`: Fetches a value and caches it for a `TimeInterval` (in seconds). Good for data that changes infrequently, like calendar events.
-- `.onAppForeground`: Fetches a value only when the app enters the foreground (or when you manually call `await runtime.refreshContextOnForeground()`).
+- `.onMessageSend`
+  - When to use: highly dynamic signals (e.g., `NetworkQualityProvider`).
+  - Pros: maximum freshness at send time; simplest mental model.
+  - Trade-offs: runs on every send; ensure work is very lightweight.
+
+- `.every(ttl)`
+  - When to use: polled/semi-dynamic signals where slight staleness is fine (e.g., calendar peek every few minutes, routine inference every 10–15 minutes).
+  - Pros: predictable cost; balances freshness with battery/CPU.
+  - Trade-offs: may serve cached values within TTL; pick TTL per use case.
+
+- `.onAppForeground`
+  - When to use: semi-static signals tied to app visibility or OS settings (e.g., locale, 24‑hour preference, device environment snapshot).
+  - Pros: near-zero background cost; updates when user returns.
+  - Trade-offs: values won’t refresh while app is backgrounded unless you manually call `await runtime.refreshContextOnForeground()` after state changes.
 
 ### Quick Start: Registering Providers
 
@@ -71,6 +82,12 @@ let runtime = NeuronRuntime(config: cfg)
 let convo = runtime.openConversation(agentId: UUID())
 try await convo.sendMessage("Hello")
 ```
+
+### Provider Template
+
+Use this commented Swift template as a starting point for your own provider implementation:
+
+- `docs/templates/TemplateProvider.swift`
 
 ## 4. Built-in Provider Reference
 
@@ -103,6 +120,87 @@ These powerful providers synthesize raw data to derive higher-level insights abo
 - `UrgencyEstimatorProvider`: Infers the urgency or emotional state from user behavior.
   - **Keys**: `inferred.urgency` (low | med | high), `inferred.urgency.rationale`
   - **Formula**: Typing speed + App data + Time of day + Heart rate
+
+### Creating a Custom Provider
+
+You can build your own provider when you need domain-specific signals.
+
+Key pieces you implement:
+
+- A `struct` for the value you emit (Codable)
+- A type that conforms to `ContextProvider`
+  - `key`: a unique identifier for your provider
+  - `updatePolicy`: when to refresh (on send / TTL / app foreground)
+  - `getCurrentContext()`: async function that returns your value (or `nil`)
+
+Example: a simple Battery Health provider that writes into `additionalContext`.
+
+```swift
+import Foundation
+import NeuronKit
+import UIKit
+
+// 1) Define the value you want to emit (optional – you can also emit a flat map)
+struct BatteryHealthContext: Codable {
+  let level: Int?           // 0..100
+  let state: String?        // charging|unplugged|full|unknown
+}
+
+// 2) Implement a ContextProvider
+public final class BatteryHealthProvider: ContextProvider {
+  public let key: String = "battery.health"
+  public let updatePolicy: ContextUpdatePolicy
+
+  public init(updatePolicy: ContextUpdatePolicy = .every(120)) {
+    self.updatePolicy = updatePolicy
+    #if canImport(UIKit)
+    UIDevice.current.isBatteryMonitoringEnabled = true
+    #endif
+  }
+
+  public func getCurrentContext() async -> Codable? {
+    #if canImport(UIKit)
+    let levelPct: Int?
+    if UIDevice.current.batteryLevel >= 0 {
+      levelPct = Int(UIDevice.current.batteryLevel * 100)
+    } else {
+      levelPct = nil
+    }
+
+    let stateStr: String
+    switch UIDevice.current.batteryState {
+    case .charging: stateStr = "charging"
+    case .full: stateStr = "full"
+    case .unplugged: stateStr = "unplugged"
+    default: stateStr = "unknown"
+    }
+
+    return BatteryHealthContext(level: levelPct, state: stateStr)
+    #else
+    return nil
+    #endif
+  }
+}
+```
+
+Register it the same way as built-ins:
+
+```swift
+let battery = BatteryHealthProvider(updatePolicy: .every(120))
+let cfg = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device", userId: "demo-user",
+  contextProviders: [battery]
+)
+```
+
+Best practices:
+
+- Prefer coarse, privacy-safe values (strings/numbers) – avoid PII
+- Do not prompt for permissions inside providers; return `nil` if unauthorized
+- Keep work lightweight; cache when using `.every(ttl)`
+- Consider app lifecycle (foreground/background) and platform availability
+- Add unit tests for serialization and edge cases
 
 ## 5. Use Case Scenarios in Action
 

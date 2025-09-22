@@ -38,11 +38,22 @@ NeuronKit 收集上下文，并随每条消息发送到您的智能体后端。�
 
 ### 更新策略
 
-您可以使用 `updatePolicy` 控制 provider 获取数据的频率：
+您可以使用 `updatePolicy` 控制 provider 获取数据的频率。请根据新鲜度、耗电/CPU 以及用户体验取舍选择：
 
-- `.onMessageSend`: 每次发送消息时获取最新值。适用于网络质量等高度动态的上下文。
-- `.every(ttl)`: 获取一次值，并在 `TimeInterval`（秒）的持续时间内缓存。适用于不经常变化的数据，如日历事件。
-- `.onAppForeground`: 仅在应用进入前台时（或当您手动调用 `await runtime.refreshContextOnForeground()` 时）获取值。
+- `.onMessageSend`
+  - 何时使用：高度动态的信号（如 `NetworkQualityProvider`）。
+  - 优点：发送时拥有最高新鲜度；心智模型最简单。
+  - 取舍：每次发送都会执行；务必保持逻辑极其轻量。
+
+- `.every(ttl)`
+  - 何时使用：可轮询/半动态信号，允许轻微陈旧（如日历窥探每几分钟一次、日常模式推断每 10–15 分钟）。
+  - 优点：成本可预测；在新鲜度与电量/CPU 之间取得平衡。
+  - 取舍：在 TTL 内返回缓存值；请按场景合理选择 TTL。
+
+- `.onAppForeground`
+  - 何时使用：与可见性或系统设置相关的半静态信号（如语言/24小时制、设备环境快照）。
+  - 优点：几乎零后台成本；用户返回前台时刷新。
+  - 取舍：后台期间不会刷新；如状态改变可在唤醒后手动调用 `await runtime.refreshContextOnForeground()`。
 
 ### 快速上手：注册 Provider
 
@@ -71,6 +82,12 @@ let runtime = NeuronRuntime(config: cfg)
 let convo = runtime.openConversation(agentId: UUID())
 try await convo.sendMessage("Hello")
 ```
+
+### Provider 模板
+
+你可以从以下带注释的 Swift 模板开始实现自定义 Provider：
+
+- `docs/templates/TemplateProvider.swift`
 
 ## 4. 内置 Provider 参考
 
@@ -103,6 +120,87 @@ NeuronKit 自带一组丰富的内置 provider。您只需初始化并注册它�
 - `UrgencyEstimatorProvider`: 从用户行为中推断紧急程度或情绪状态。
   - **键**: `inferred.urgency` (low | med | high), `inferred.urgency.rationale`
   - **算法**: 打字速度 + 应用数据 + 时间 + 心率
+
+### 自定义 Provider 的创建
+
+当你需要领域特定（Domain-specific）的上下文信号时，可以实现自己的 Provider。
+
+关键要点：
+
+- 定义一个用于输出的值类型（`Codable` 的 `struct`）
+- 实现一个符合 `ContextProvider` 协议的类型：
+  - `key`：Provider 的唯一标识（用于 `additionalContext` 命名空间）
+  - `updatePolicy`：何时刷新（发送时 / TTL / 前台）
+  - `getCurrentContext()`：异步返回你的值（或者 `nil`）
+
+示例：电池健康 Provider（写入 `additionalContext`）。
+
+```swift
+import Foundation
+import NeuronKit
+import UIKit
+
+// 1) 定义要输出的值类型（也可直接输出平铺的字典）
+struct BatteryHealthContext: Codable {
+  let level: Int?    // 0..100
+  let state: String? // charging|unplugged|full|unknown
+}
+
+// 2) 实现 ContextProvider
+public final class BatteryHealthProvider: ContextProvider {
+  public let key: String = "battery.health"
+  public let updatePolicy: ContextUpdatePolicy
+
+  public init(updatePolicy: ContextUpdatePolicy = .every(120)) {
+    self.updatePolicy = updatePolicy
+    #if canImport(UIKit)
+    UIDevice.current.isBatteryMonitoringEnabled = true
+    #endif
+  }
+
+  public func getCurrentContext() async -> Codable? {
+    #if canImport(UIKit)
+    let levelPct: Int?
+    if UIDevice.current.batteryLevel >= 0 {
+      levelPct = Int(UIDevice.current.batteryLevel * 100)
+    } else {
+      levelPct = nil
+    }
+
+    let stateStr: String
+    switch UIDevice.current.batteryState {
+    case .charging: stateStr = "charging"
+    case .full: stateStr = "full"
+    case .unplugged: stateStr = "unplugged"
+    default: stateStr = "unknown"
+    }
+
+    return BatteryHealthContext(level: levelPct, state: stateStr)
+    #else
+    return nil
+    #endif
+  }
+}
+```
+
+注册方式与内置 Provider 相同：
+
+```swift
+let battery = BatteryHealthProvider(updatePolicy: .every(120))
+let cfg = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device", userId: "demo-user",
+  contextProviders: [battery]
+)
+```
+
+最佳实践：
+
+- 只输出粗粒度、隐私友好的字符串/数值，避免 PII
+- Provider 不要主动触发权限弹窗；若无授权，返回 `nil`
+- 保持轻量；对 `.every(ttl)` 类型的 Provider 做好缓存
+- 考虑应用生命周期（前台/后台）和跨平台可用性
+- 为序列化与边界条件添加单元测试
 
 ## 5. 实际应用场景
 
