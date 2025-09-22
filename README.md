@@ -1,8 +1,6 @@
 # FinClip Neuron — Developer Guide
 
 > 📖 **Language**: [English](README.md) | [中文](README.zh.md)
->
-> 📚 **Guides**: [Context](context.md) | [Context (中文)](context.zh.md)
 
 ## 1. Introduction
 
@@ -417,7 +415,9 @@ Examples:
 
 ## 10. Context (overview)
 
-NeuronKit can enrich each outbound message with device and app context to help your PDP make better decisions. Highlights:
+Context is one of the most important designs of the NeuronKit SDK. It continuously collects relevant mobile device and in‑app signals to accompany user intent so your agent can understand situation, safety posture, and preferences. This is part of modern context engineering for agent systems.
+
+NeuronKit enriches each outbound message with device and app context to help your PDP make better decisions. Highlights:
 
 - Register Context Providers when creating `NeuronKitConfig` to emit values on send, by TTL, or on app foreground.
 - Context is delivered via a typed `DeviceContext` plus an `additionalContext: [String: String]` map for coarse signals.
@@ -425,8 +425,7 @@ NeuronKit can enrich each outbound message with device and app context to help y
 
 Quick links:
 
-- Full guide: `context.md`
-- 中文文档：`context.zh.md`
+- [Full guide: `context.md`](context.md)
 
 These documents include update policies, quick-start samples, the full provider reference (standard / advanced / inferred), and downstream parsing guidance.
 

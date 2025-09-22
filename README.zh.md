@@ -1,8 +1,6 @@
 # FinClip Neuron — 开发者指南（中文）
 
  📖 **语言**: [English](README.md) | [中文](README.zh.md)
->
-> 📚 **指南**: [Context (中文)](context.zh.md) | [Context](context.md)
 
 ## 1. 介绍
 
@@ -326,7 +324,9 @@ salesConvo.close()
 
 ## 10. 上下文（概览）
 
-NeuronKit 可以为每条出站消息自动富集设备与应用上下文，帮助 PDP 做出更优决策。
+上下文是 NeuronKit SDK 最重要的设计之一。它持续收集与用户意图相关的移动设备与应用内信号，并随消息一并发送给智能体，帮助其理解当下情境、安全态势与偏好。这属于智能体系统中的“上下文工程”。
+
+NeuronKit 会为每条出站消息自动富集设备与应用上下文，帮助 PDP 做出更优决策。
 
 - 在创建 `NeuronKitConfig` 时注册 Context provider，可在发送时/按 TTL/前台刷新生成值。
 - 上下文通过强类型的 `DeviceContext` 与 `additionalContext: [String: String]`（粗粒度信号）传递。
@@ -334,9 +334,8 @@ NeuronKit 可以为每条出站消息自动富集设备与应用上下文，帮�
 
 快速链接：
 
-- 完整指南：`context.zh.md`
-- English: `context.md`
-
+- [完整指南](context.zh.md)
+  
 上述文档包含刷新策略、快速上手示例、完整的 provider 参考（标准/高级/衍生），以及后端解析指引。
 
 ---
