@@ -93,6 +93,23 @@ Use this commented Swift template as a starting point for your own provider impl
 
 NeuronKit comes with a rich set of built-in providers. You just need to initialize and register them.
 
+### Provider Quick Reference
+
+| Provider | Keys / Outputs (examples) | Purpose |
+| --- | --- | --- |
+| `ScreenStateProvider` | `screenOn`, `orientation` | Snapshot of screen power state and device orientation. |
+| `ThermalStateProvider` | `thermalState` | Reports current thermal pressure for performance-aware decisions. |
+| `DeviceEnvironmentProvider` | `locale`, `is24Hour` | Locale and time format preferences to tailor responses/UI. |
+| `TimeBucketProvider` | `daySegment`, `weekday` | Time-of-day buckets and weekday for routine-aware logic. |
+| `NetworkQualityProvider` | `network.quality` | Lightweight network quality signal for reliability/routing. |
+| `NetworkStatusProvider` | `network.type` | Current connectivity type (wifi/cellular/wired/none/etc.). |
+| `CalendarPeekProvider` | `social.calendar_next_event`, `social.calendar_next_event.start_ts` | Whether a near-future event exists and its start time. |
+| `BarometerProvider` (iOS) | `env.pressure_kPa` | Ambient pressure hinting at environment/elevation changes. |
+| `DeviceStateProvider` (iOS) | `battery.level`, `battery.state` | Battery level/state for power-aware behaviors. |
+| `LocationContextProvider` (iOS) | `location.latitude`, `location.longitude`, `location.accuracy` | Coarse/fine location snapshot when already authorized (no prompts). |
+| `RoutineInferenceProvider` | `inferred.routine`, `inferred.routine.confidence` | High-level routine (work/commute/home) inferred from signals. |
+| `UrgencyEstimatorProvider` | `inferred.urgency`, `inferred.urgency.rationale` | Heuristic estimation of urgency/emotional state. |
+
 ### Standard Providers (Mapped to `DeviceContext`)
 
 These providers populate the core `DeviceContext` object.

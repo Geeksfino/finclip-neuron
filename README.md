@@ -126,7 +126,21 @@ let config = NeuronKitConfig(
   serverURL: URL(string: "wss://agent.example.com")!,
   deviceId: "demo-device",
   userId: "demo-user",
-  storage: .persistent // default; use .inMemory for tests
+  storage: .persistent, // default; use .inMemory for tests
+  contextProviders: [  // all optional. This array can be empty.
+    ScreenStateProvider(),   // detect screen on/off and orientation
+    ThermalStateProvider(),  // detect thermal state
+    DeviceEnvironmentProvider(), // detect locale and time format
+    TimeBucketProvider(), // detect time of day and week
+    NetworkQualityProvider(), // detect network quality
+    NetworkStatusProvider(), // detect network status
+    CalendarPeekProvider(), // detect next calendar event
+    BarometerProvider(), // detect ambient pressure
+    DeviceStateProvider(), // iOS battery level/state
+    LocationContextProvider(), // requires app to have location permission; provider will not prompt
+    RoutineInferenceProvider(), // infer routine
+    UrgencyEstimatorProvider() // estimate urgency
+  ]
 )
 
 // 2) Initialize runtime

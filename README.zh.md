@@ -136,7 +136,21 @@ let config = NeuronKitConfig(
   serverURL: URL(string: "wss://api.example.com")!,
   deviceId: "demo-device",
   userId: "demo-user",
-  storage: .persistent // 默认；测试/演示可用 .inMemory
+  storage: .persistent, // 默认；测试/演示可用 .inMemory
+  contextProviders: [  // 所有项均可选。此数组可以为空。
+    ScreenStateProvider(),   // 屏幕开关/方向
+    ThermalStateProvider(),  // 热压力
+    DeviceEnvironmentProvider(), // 语言与 24 小时制
+    TimeBucketProvider(), // 时间分段/星期
+    NetworkQualityProvider(), // 网络质量
+    NetworkStatusProvider(), // 网络类型（wifi/cellular 等）
+    CalendarPeekProvider(), // 近期日历事件
+    BarometerProvider(), // 环境气压（iOS）
+    DeviceStateProvider(), // 电池电量/状态（iOS）
+    LocationContextProvider(), // 需要已有定位权限，Provider 不主动弹窗
+    RoutineInferenceProvider(), // 日常模式推断
+    UrgencyEstimatorProvider() // 紧急程度估计
+  ]
 )
 let runtime = NeuronRuntime(config: config)
 

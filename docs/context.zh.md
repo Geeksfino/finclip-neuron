@@ -93,6 +93,23 @@ try await convo.sendMessage("Hello")
 
 NeuronKit 自带一组丰富的内置 provider。您只需初始化并注册它们。
 
+### Provider 快速参考
+
+| Provider | 键 / 输出（示例） | 用途 |
+| --- | --- | --- |
+| `ScreenStateProvider` | `screenOn`, `orientation` | 屏幕开关与设备方向快照，用于界面/交互调整。 |
+| `ThermalStateProvider` | `thermalState` | 当前热压力，用于性能/能耗感知决策。 |
+| `DeviceEnvironmentProvider` | `locale`, `is24Hour` | 语言与时间制式偏好，用于内容/UI 本地化。 |
+| `TimeBucketProvider` | `daySegment`, `weekday` | 时间分段与星期，支持基于日常规律的逻辑。 |
+| `NetworkQualityProvider` | `network.quality` | 轻量网络质量信号，用于可靠性/路由策略。 |
+| `NetworkStatusProvider` | `network.type` | 当前连接类型（wifi/cellular/wired/none 等）。 |
+| `CalendarPeekProvider` | `social.calendar_next_event`, `social.calendar_next_event.start_ts` | 近期事件存在与开始时间，用于上下文判断与提醒。 |
+| `BarometerProvider`（iOS） | `env.pressure_kPa` | 环境气压，提示环境/海拔变化。 |
+| `DeviceStateProvider`（iOS） | `battery.level`, `battery.state` | 电池电量/状态，支持省电/性能感知行为。 |
+| `LocationContextProvider`（iOS） | `location.latitude`, `location.longitude`, `location.accuracy` | 在已授权的前提下获取一次性位置（不主动弹窗）。 |
+| `RoutineInferenceProvider` | `inferred.routine`, `inferred.routine.confidence` | 从多信号推断“工作/通勤/在家”等日常模式。 |
+| `UrgencyEstimatorProvider` | `inferred.urgency`, `inferred.urgency.rationale` | 估计紧急程度/情绪状态，辅助响应策略。 |
+
 ### 标准 Provider (映射到 `DeviceContext`)
 
 这些 provider 填充核心的 `DeviceContext` 对象。
