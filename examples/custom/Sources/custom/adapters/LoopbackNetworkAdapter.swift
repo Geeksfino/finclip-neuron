@@ -87,64 +87,74 @@ public final class MyLoopbackNetworkAdapter: BaseNetworkAdapter {
     
     // First: echo a chat message back from the agent
     let responseTexts = [
-      "I understand you want to \(userContent.lowercased()). Let me help you with that.",
-      "Based on your request '\(userContent)', I'll suggest an appropriate action.",
-      "I can help you with '\(userContent)'. Let me propose a suitable feature.",
-      "Processing your request: '\(userContent)'. I'll recommend the best option."
+        "I understand you want to \(userContent.lowercased()). Let me help you with that.",
+        "Based on your request '\(userContent)', I'll suggest an appropriate action.",
+        "I can help you with '\(userContent)'. Let me propose a suitable feature.",
+        "Processing your request: '\(userContent)'. I'll recommend the best option."
     ]
     let agentResponse = responseTexts.randomElement() ?? "I received your message."
-    
+
     let wire = WireMessage(
-      id: UUID(),
-      conversationId: conversationId,
-      sender: "agent",
-      content: agentResponse,
-      timestamp: Date(),
-      meta: nil as [String: String]?
+        id: UUID(),
+        conversationId: conversationId,
+        sender: "agent",
+        content: agentResponse,
+        timestamp: Date(),
+        meta: nil as [String: String]?
     )
+
     if let reply = try? JSONEncoder().encode(wire) {
-      queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in 
-        self?.handleInboundData(reply)
-      }
+        // Use a dispatch group to send the chat message and then the directive sequentially
+        let group = DispatchGroup()
+        
+        // Send chat message
+        group.enter()
+        queue.asyncAfter(deadline: .now() + 0.5) {
+            self.handleInboundData(reply)
+            group.leave()
+        }
+        
+        // After chat message is sent, send the action proposal
+        group.notify(queue: queue) {
+            self.sendActionProposal(conversationId: conversationId, availableFeatures: availableFeatures)
+        }
+    }
+  }
+
+  private func sendActionProposal(conversationId: UUID, availableFeatures: [[String: Any]]) {
+    if availableFeatures.isEmpty { return }
+    
+    let selectedIndex = availableFeatures.count > 1 ? 1 : 0  // Always pick second feature if available
+    let chosen = availableFeatures[selectedIndex]
+    
+    guard let fid = chosen["id"] as? String, let fname = chosen["name"] as? String else { return }
+    
+    print("[Loopback] 🤖 Agent selecting feature [\(selectedIndex + 1)]: \(fname) (\(fid))")
+    
+    var args: [String: String] = [:]
+    switch fid {
+    case "open_payment":
+        args = ["amount": "29.99", "currency": "USD", "merchant": "Demo Store"]
+    case "open_camera":
+        args = ["mode": "photo", "quality": "high"]
+    case "access_contacts":
+        args = ["purpose": "contact_suggestion", "limit": "10"]
+    case "get_location":
+        args = ["precision": "city", "purpose": "weather"]
+    case "send_notification":
+        args = ["title": "Demo Notification", "message": "This is a test notification"]
+    default:
+        args = ["action": "execute"]
     }
     
-    // Second: intelligently select the second feature (index 1) if available, or first if only one
-    if !availableFeatures.isEmpty {
-      let selectedIndex = availableFeatures.count > 1 ? 1 : 0  // Always pick second feature if available
-      let chosen = availableFeatures[selectedIndex]
-      
-      if let fid = chosen["id"] as? String,
-         let fname = chosen["name"] as? String {
-        print("[Loopback] 🤖 Agent selecting feature [\(selectedIndex + 1)]: \(fname) (\(fid))")
-        
-        // Create args based on feature type
-        var args: [String: String] = [:]
-        switch fid {
-        case "open_payment":
-          args = ["amount": "29.99", "currency": "USD", "merchant": "Demo Store"]
-        case "open_camera":
-          args = ["mode": "photo", "quality": "high"]
-        case "access_contacts":
-          args = ["purpose": "contact_suggestion", "limit": "10"]
-        case "get_location":
-          args = ["precision": "city", "purpose": "weather"]
-        case "send_notification":
-          args = ["title": "Demo Notification", "message": "This is a test notification"]
-        default:
-          args = ["action": "execute"]
-        }
-        
-        let env = InboundEnvelope(
-          type: .directives,
-          sessionId: conversationId,
-          directives: [ ActionProposal(id: UUID(), feature: fid, args: args) ]
-        )
-        if let payload = try? JSONEncoder().encode(env) {
-          queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in 
-            self?.handleInboundData(payload)
-          }
-        }
-      }
+    let env = InboundEnvelope(
+        type: .directives,
+        sessionId: conversationId,
+        directives: [ ActionProposal(id: UUID(), feature: fid, args: args) ]
+    )
+    
+    if let payload = try? JSONEncoder().encode(env) {
+        self.handleInboundData(payload)
     }
   }
 }
