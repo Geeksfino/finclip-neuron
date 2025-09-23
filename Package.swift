@@ -3,7 +3,10 @@ import PackageDescription
 
 let package = Package(
   name: "finclip-neuron",
-  platforms: [.iOS(.v14), .macOS(.v12)],
+  platforms: [
+    .iOS(.v14),
+    .macOS(.v12)
+  ],
   products: [
     .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
     .library(name: "convstorelib", targets: ["convstorelib"]),
@@ -17,9 +20,10 @@ let package = Package(
     ),
     .binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v6ca80f6-swift6_0/convstorelib.xcframework.zip",
-      checksum: "03861a0bbfecdd66f2063976bcf5c2a2648c24f644c6b4790c26ac1955105543"
-    ),
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v1a27ae4-swift6_0/convstorelib.xcframework.zip",
+      checksum: "bdf13010debfd9463d1fd14f32861554f99fb86e503eaac5ea6fe0c962a07d66"
+    )
+   ,
     .binaryTarget(
       name: "NeuronKit",
       url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-v230155a-swift6_0/NeuronKit.xcframework.zip",
