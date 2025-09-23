@@ -4,37 +4,23 @@ import NeuronKit
 
 /// A trivial NetworkAdapter that loops outbound bytes back as inbound.
 /// This adapter is primarily used for testing and development purposes.
-public final class MyLoopbackNetworkAdapter: NetworkAdapter {
+public final class MyLoopbackNetworkAdapter: BaseNetworkAdapter {
   private let queue = DispatchQueue(label: "loopback.adapter")
-  private var started = false
-  
-  // NetworkAdapter required callback properties
-  public var onOutboundData: ((Data) -> Void)?
-  public var onStateChange: ((NetworkState) -> Void)?
-  public var inboundDataHandler: ((Data) -> Void)?
-  
-  private let inboundSubject = PassthroughSubject<Data, Never>()
-  private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
-  
-  public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
-  public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
-  
-  public init() {}
 
-  public func start() {
-    started = true
-    stateSubject.send(.connected)
-    onStateChange?(.connected)
-  }
-  
-  public func stop() {
-    started = false
-    stateSubject.send(.disconnected)
-    onStateChange?(.disconnected)
+  public override init() {
+    super.init()
   }
 
-  public func send(_ data: Data) {
-    guard started else { return }
+  public override func start() {
+    updateState(.connected)
+  }
+  
+  public override func stop() {
+    updateState(.disconnected)
+  }
+
+  public override func sendToNetworkComponent(_ data: Any) {
+    guard let data = data as? Data else { return }
     
     print("\n=== OUTBOUND JSON (Network Send) ===")
     if let jsonString = String(data: data, encoding: .utf8) {
@@ -94,8 +80,7 @@ public final class MyLoopbackNetworkAdapter: NetworkAdapter {
     } else {
       print("[Loopback] ❌ Could not parse outbound JSON; falling back to raw echo")
       queue.asyncAfter(deadline: .now() + 0.01) { [weak self] in
-        self?.inboundSubject.send(data)
-        self?.inboundDataHandler?(data)
+        self?.handleInboundData(data)
       }
       return
     }
@@ -119,8 +104,7 @@ public final class MyLoopbackNetworkAdapter: NetworkAdapter {
     )
     if let reply = try? JSONEncoder().encode(wire) {
       queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in 
-        self?.inboundSubject.send(reply)
-        self?.inboundDataHandler?(reply)
+        self?.handleInboundData(reply)
       }
     }
     
@@ -157,8 +141,7 @@ public final class MyLoopbackNetworkAdapter: NetworkAdapter {
         )
         if let payload = try? JSONEncoder().encode(env) {
           queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in 
-            self?.inboundSubject.send(payload)
-            self?.inboundDataHandler?(payload)
+            self?.handleInboundData(payload)
           }
         }
       }
