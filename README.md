@@ -373,22 +373,62 @@ let inMemory = NeuronKitConfig(
 
 A ConvoUI adapter bridges your UI with NeuronKit.
 
-- It forwards user input into the runtime (so your app does not call `sendMessage` directly in typical integrations).
+- It forwards user input into the runtime (so your app does not call `sendMessage` directly).
 - It renders inbound messages and system notifications.
 - It shows consent prompts when PDP requires explicit approval.
 
+### Message model: `NeuronMessage`
+
+Adapters consume `NeuronMessage` values published by `ConvoSession.messagesPublisher` (or the runtime-level `messagesPublisher`). Each message is normalized and safe to render.
+
+- **content** – Main textual payload. Computed as `wire.text ?? wire.content ?? ""`, so agents can choose either field. Treat an empty string as "no text" and render `attachments` or `components` when present.
+- **sender** – Enum (`.user`, `.agent`, `.system`, `.tool`) for styling chat bubbles and attribution.
+- **attachments** – Array where each item provides `displayName`, `mimeType`, optional `url`, inline `dataBase64`, and custom `meta`. Download lazily when `url` exists or render previews when the payload is embedded.
+- **components** – Structured UI widgets described by `type`/`variant` plus optional `payload`. Map these into custom SwiftUI views or UIKit components.
+- **metadata** – Optional dictionary for analytic tags or lightweight labels (e.g., "intent", "topic").
+- **timestamp & id** – Stable values that let you order messages and back your UI with diffable data sources.
+
+#### Streaming APIs
+
+- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` defaults to delta mode when you bind via `ConvoSession.bindUI`. Your adapter receives one full snapshot (`initialSnapshot: .full`) followed by incremental updates. Pass `isDelta: false` if you prefer full histories every time.
+- `messagesSnapshot(sessionId:limit:before:)` offers paginated history for list warm-up or pull-to-refresh flows.
+
+#### Typical binding pattern
+
+```swift
+import Combine
+
+final class MyConvoAdapter {
+  private var cancellables = Set<AnyCancellable>()
+
+  func bind(session: ConvoSession) {
+    session.messagesPublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] messages in
+        self?.render(messages: messages)
+      }
+      .store(in: &cancellables)
+  }
+
+  func send(text: String, session: ConvoSession) {
+    Task { try await session.sendMessage(text) }
+  }
+
+  private func render(messages: [NeuronMessage]) {
+    // Update your view model or UI here
+  }
+}
+
+> Tip: Store messages in an `@Published` array for SwiftUI, and bind via `ForEach(messages)`; stable IDs keep updates efficient during rapid streaming.
 > Attach vs Resume (short guide)
 >
 > - Use `attachConversation(sessionId:)` to obtain a read-only handle for lists and previews. You can still bind a UI to stream history via `messagesPublisher`, but live events won’t flow until resumed.
 > - Use `resumeConversation(sessionId:agentId:)` to ensure the session is live (workers active) and bind a UI for history + live updates.
-> - For screen navigation, prefer `convo.unbindUI()` on disappear and `convo.bindUI(...)` on appear; call `convo.close()` only when ending the conversation.
 
 ### Session-Centric Binding (Recommended)
-
 The new approach allows you to bind/unbind UI adapters to specific sessions dynamically:
 
 ```swift
-// Open a conversation
 let convo = runtime.openConversation(agentId: UUID())
 
 // Bind UI adapter to this specific conversation

@@ -289,6 +289,51 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - 渲染智能体消息与系统提醒。
 - PDP 返回需要显式同意时，展示同意 UI。
 
+### 消息模型：`NeuronMessage`
+
+适配器通过 `ConvoSession.messagesPublisher`（或运行时级别的 `messagesPublisher`）接收 `NeuronMessage` 数组。每条消息都已过标准化，直接可用于渲染。
+
+- **content** —— 主文本内容。来源为 `wire.text ?? wire.content ?? ""`，因此后端可发送 `text` 或 `content` 字段。若为空字符串，请结合 `attachments` 或 `components` 渲染。
+- **sender** —— 枚举（`.user`/`.agent`/`.system`/`.tool`），用于区分气泡样式与归属。
+- **attachments** —— 附件数组，包含 `displayName`、`mimeType`、可选 `url`、可选内联 `dataBase64` 与自定义 `meta`。存在 `url` 时建议惰性下载；存在 `dataBase64` 时可直接渲染预览。
+- **components** —— 结构化 UI 组件，由 `type`/`variant` 与可选 `payload` 描述。你可以将其映射为自定义 SwiftUI / UIKit 视图。
+- **metadata** —— 可选的键值对，用于分析标签或轻量提示（如 "intent"、"topic"）。
+- **timestamp & id** —— 稳定字段，便于排序、去重与持久化，适配 diffable 数据源。
+
+#### 流式 API
+
+- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` —— 通过 `ConvoSession.bindUI` 绑定时，默认采用“增量模式 + 初始快照”（`isDelta: true, initialSnapshot: .full`）。即首次推送为完整历史，其后仅推送新变更。若希望每次都是完整历史，可传 `isDelta: false`。
+- `messagesSnapshot(sessionId:limit:before:)` —— 一次性分页快照，适合列表首屏或下拉加载更早历史。
+
+#### 典型绑定示例
+
+```swift
+import Combine
+
+final class MyConvoAdapter {
+  private var cancellables = Set<AnyCancellable>()
+
+  func bind(session: ConvoSession) {
+    session.messagesPublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] messages in
+        self?.render(messages: messages)
+      }
+      .store(in: &cancellables)
+  }
+
+  func send(text: String, session: ConvoSession) {
+    Task { try await session.sendMessage(text) }
+  }
+
+  private func render(messages: [NeuronMessage]) {
+    // 在此更新你的视图模型或界面
+  }
+}
+```
+
+> 提示：在 SwiftUI 中可将消息存入 `@Published` 数组，并通过 `ForEach(messages)` 绑定；稳定的 `id` 能确保快速流式更新下依然高效 diff。
+
 ### 会话中心绑定（推荐）
 
 新方法允许你动态地将 UI 适配器绑定/解绑到特定会话：
