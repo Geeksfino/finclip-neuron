@@ -11,6 +11,7 @@ class ChatViewModel: ObservableObject {
   @Published var messages: [NeuronMessage] = []
   @Published var isConnected: Bool = false
   @Published var systemNotification: String?
+  @Published var streamingPreviews: [UUID: String] = [:]
   
   // In a real SwiftUI app, this would trigger a sheet or alert
   func showConsentDialog(title: String, message: String, onApprove: @escaping () -> Void, onDeny: @escaping () -> Void) {
@@ -40,6 +41,16 @@ class ChatViewModel: ObservableObject {
       print("📤 [UI] Message sent: \(text)")
     } catch {
       print("❌ [UI] Failed to send message: \(error)")
+    }
+  }
+
+  func updateStreamingPreview(id: UUID, text: String, isFinal: Bool) {
+    streamingPreviews[id, default: ""] += text
+    print("💡 [UI] Streaming preview (id=\(id)): \(streamingPreviews[id] ?? "")")
+    if isFinal {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        self.streamingPreviews.removeValue(forKey: id)
+      }
     }
   }
 }

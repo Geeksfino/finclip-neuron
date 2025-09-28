@@ -344,121 +344,92 @@ See examples:
 - `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
 - `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift` (synthetic, no real network)
 
----
+### Streaming adapters & SSE blueprint
 
-## 8. Storage configuration (persistence)
-
-NeuronKit uses a local message store to persist conversation history. By default, persistence is enabled. Configure it when creating `NeuronKitConfig`:
-
-```swift
-let config = NeuronKitConfig(
-  serverURL: URL(string: "wss://agent.example.com")!,
-  deviceId: "demo-device",
-  userId: "demo-user",
-  storage: .persistent // default
-)
-// For tests/demos where persistence is not needed:
-let inMemory = NeuronKitConfig(
-  serverURL: URL(string: "wss://agent.example.com")!,
-  deviceId: "demo-device",
-  userId: "demo-user",
-  storage: .inMemory
-)
-```
-
-- Use the publisher `runtime.messagesPublisher(sessionId:)` (or `convo.messagesPublisher`) to stream history and updates.
-- Use `runtime.messagesSnapshot(sessionId:limit:before:)` to fetch one-shot paginated history for list previews or initial render.
-
-## 9. ConvoUI Adapters (for custom implementation)
-
-A ConvoUI adapter bridges your UI with NeuronKit.
-
-- It forwards user input into the runtime (so your app does not call `sendMessage` directly).
-- It renders inbound messages and system notifications.
-- It shows consent prompts when PDP requires explicit approval.
-
-### Message model: `NeuronMessage`
-
-Adapters consume `NeuronMessage` values published by `ConvoSession.messagesPublisher` (or the runtime-level `messagesPublisher`). Each message is normalized and safe to render.
-
-- **content** – Main textual payload. Computed as `wire.text ?? wire.content ?? ""`, so agents can choose either field. Treat an empty string as "no text" and render `attachments` or `components` when present.
-- **sender** – Enum (`.user`, `.agent`, `.system`, `.tool`) for styling chat bubbles and attribution.
-- **attachments** – Array where each item provides `displayName`, `mimeType`, optional `url`, inline `dataBase64`, and custom `meta`. Download lazily when `url` exists or render previews when the payload is embedded.
-- **components** – Structured UI widgets described by `type`/`variant` plus optional `payload`. Map these into custom SwiftUI views or UIKit components.
-- **metadata** – Optional dictionary for analytic tags or lightweight labels (e.g., "intent", "topic").
-- **timestamp & id** – Stable values that let you order messages and back your UI with diffable data sources.
-
-#### Streaming APIs
-
-- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` defaults to delta mode when you bind via `ConvoSession.bindUI`. Your adapter receives one full snapshot (`initialSnapshot: .full`) followed by incremental updates. Pass `isDelta: false` if you prefer full histories every time.
-- `messagesSnapshot(sessionId:limit:before:)` offers paginated history for list warm-up or pull-to-refresh flows.
-
-#### Typical binding pattern
+- **Preview tokens** – The loopback, mock, WebSocket, and URLSession adapters in `examples/custom/` now emit text previews by constructing `InboundStreamChunk` values and forwarding them through `inboundPartialDataHandler`. Review those files for chunk sizing, metadata, and timing patterns. A ready-to-copy template lives in `docs/templates/TemplateSSEAdapter.swift`.
+- **HTTP polling** – `MyURLSessionHTTPAdapter` shows how to decode either preview tokens (`MockPreviewEnvelope`) or fully buffered results (`MockStreamEnvelope`) before calling `handleInboundData(_:)`.
+- **Server-Sent Events (SSE)** – Use `URLSessionDataDelegate` to collect frames, emit preview chunks, and forward the final payload:
 
 ```swift
-import Combine
+final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
+  private let url: URL
+  private lazy var session = URLSession(configuration: .default,
+                                        delegate: self,
+                                        delegateQueue: nil)
+  private var task: URLSessionDataTask?
+  private var buffer = Data()
 
-final class MyConvoAdapter {
-  private var cancellables = Set<AnyCancellable>()
+  override func start() {
+    updateState(.connecting)
+    task = session.dataTask(with: url)
+    task?.resume()
+  }
 
-  func bind(session: ConvoSession) {
-    session.messagesPublisher
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] messages in
-        self?.render(messages: messages)
+  override func stop() {
+    task?.cancel()
+    task = nil
+    updateState(.disconnected)
+  }
+
+  func urlSession(_ session: URLSession,
+                  dataTask: URLSessionDataTask,
+                  didReceive data: Data) {
+    buffer.append(data)
+
+    while let range = buffer.range(of: "\n\n".data(using: .utf8)!) {
+      let frame = buffer.subdata(in: 0..<range.lowerBound)
+      buffer.removeSubrange(0..<range.upperBound)
+
+      guard let parsed = SSEFrame(text: String(data: frame, encoding: .utf8) ?? "") else { continue }
+
+      switch parsed.kind {
+      case .preview(let streamId, let seq, let messageId, let token, let isFinal):
+        let chunk = InboundStreamChunk(
+          streamId: streamId,
+          sequence: seq,
+          data: Data(token.utf8),
+          isFinal: isFinal,
+          messageId: messageId
+        )
+        inboundPartialDataHandler?(chunk)
+
+      case .final(let payload):
+        handleInboundData(payload)
       }
-      .store(in: &cancellables)
-  }
-
-  func send(text: String, session: ConvoSession) {
-    Task { try await session.sendMessage(text) }
-  }
-
-  private func render(messages: [NeuronMessage]) {
-    // Update your view model or UI here
+    }
   }
 }
 
-> Tip: Store messages in an `@Published` array for SwiftUI, and bind via `ForEach(messages)`; stable IDs keep updates efficient during rapid streaming.
-> Attach vs Resume (short guide)
->
-> - Use `attachConversation(sessionId:)` to obtain a read-only handle for lists and previews. You can still bind a UI to stream history via `messagesPublisher`, but live events won’t flow until resumed.
-> - Use `resumeConversation(sessionId:agentId:)` to ensure the session is live (workers active) and bind a UI for history + live updates.
+---
 
-### Session-Centric Binding (Recommended)
-The new approach allows you to bind/unbind UI adapters to specific sessions dynamically:
+## 8. ConvoUI Adapters (for custom implementation)
 
-```swift
-let convo = runtime.openConversation(agentId: UUID())
+A ConvoUI adapter bridges your UI with NeuronKit.
 
-// Bind UI adapter to this specific conversation
-let adapter = MyConvoAdapter()
-convo.bindUI(adapter)
+- **Inbound flow**
 
-// Later: unbind when UI is no longer active (e.g., view disappears)
-convo.unbindUI()
+  - It renders inbound messages and system notifications.
+  - It receives streaming preview chunks as well as final persisted messages.
 
-// Close conversation when done
-convo.close()
-```
+- **Streaming previews**
 
-### Multiple Sessions Support
+  Override `handleStreamingChunk(_:)` to show partial responses. A common pattern is to accumulate text keyed by `chunk.messageId` and feed it into a “typing” row in your chat UI. When `chunk.isFinal` is `true`, mark the preview so it can be cleared once the persisted `NeuronMessage` arrives. See `docs/templates/TemplateConvoUIAdapter.swift` for a ready-to-copy subclass that wires these pieces together.
 
-You can now have multiple active sessions with different UI adapters:
+- **Why dedup matters**
 
-```swift
-// Create conversations for different contexts
-let supportConvo = runtime.openConversation(agentId: UUID())
-let salesConvo = runtime.openConversation(agentId: UUID())
+  Imagine the transport streams “Sure, let me check that…” token by token, and a few hundred milliseconds later the server returns the exact same sentence inside the final persisted message. Without deduplication the user would see two identical bubbles (“preview” + “final”). Tracking `messageId`/`streamId` and clearing previews when the persisted message lands eliminates this duplicate.
 
-// Bind different adapters to each conversation
-supportConvo.bindUI(supportAdapter)
-salesConvo.bindUI(salesAdapter)
+- **Dedup on completion**
 
-// Later: close conversations when done
-supportConvo.close()
-salesConvo.close()
-```
+  In `handleMessages(_:)`, compare any pending preview against the stored `NeuronMessage` (same id) and either update content or clear the preview to avoid duplicate bubbles.
+
+- **Consent & system events**
+
+  Override `handleConvoEvent(_:)` and `handleConsentRequest` if your UI needs to surface directive approvals.
+
+- **Sending outbound messages**
+
+  Call `sendMessage(_:)` / `sendMessage(_:context:)` helpers once the user submits input.
 
 Examples:
 
@@ -467,8 +438,6 @@ Examples:
 - `examples/ios-sample/Sources/App/MultiSessionExample.swift`
 
 ---
-
-## 10. Context (overview)
 
 Context is one of the most important designs of the NeuronKit SDK. It continuously collects relevant mobile device and in‑app signals to accompany user intent so your agent can understand situation, safety posture, and preferences. This is part of modern context engineering for agent systems.
 

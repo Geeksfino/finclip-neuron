@@ -255,6 +255,49 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 - `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
 - `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift`（回环示例）
 
+### 流式适配器与 SSE 蓝图
+
+- **预览 token** —— `examples/custom/` 目录下的 loopback、mock、WebSocket、HTTP 适配器已经演示如何构造 `InboundStreamChunk` 并通过 `inboundPartialDataHandler` 推送流式文本。可以对照这些文件了解拆分长度、metadata 标记（如 `transport` / `kind`）以及时间节奏。仓库还提供了可直接拷贝的模板：`docs/templates/TemplateSSEAdapter.swift`。
+- **HTTP 轮询** —— `MyURLSessionHTTPAdapter` 能解析两种响应：预览 token（`MockPreviewEnvelope`）以及完整缓冲结果（`MockStreamEnvelope`），在最终帧到达时调用 `handleInboundData(_:)`。
+- **Server-Sent Events (SSE)** —— 可以借助 `URLSessionDataDelegate` 收集增量帧，先行发出预览 chunk，再在最终帧到达时转交给 `handleInboundData(_:)`：
+
+```swift
+final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
+  private let url: URL
+  private lazy var session = URLSession(configuration: .default,
+                                        delegate: self,
+                                        delegateQueue: nil)
+  private var task: URLSessionDataTask?
+  private var buffer = Data()
+
+  override func start() {
+    updateState(.connecting)
+    task = session.dataTask(with: url)
+    task?.resume()
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    buffer.append(data)
+
+    while let range = buffer.range(of: "\n\n".data(using: .utf8)!) {
+      let frame = buffer.subdata(in: 0..<range.lowerBound)
+      buffer.removeSubrange(0..<range.upperBound)
+
+      guard let parsed = SSEFrame(frame) else { continue }
+
+      switch parsed.kind {
+      case .preview(let chunk):
+        inboundPartialDataHandler?(chunk)
+      case .final(let payload):
+        handleInboundData(payload)
+      }
+    }
+  }
+}
+```
+
+其中 `SSEFrame` 是一个轻量辅助结构，用来解析 `id:`、`event:`、`data:` 字段，并在 preview 阶段把文本拆成 `InboundStreamChunk`，最终帧则还原为完整 `Data`。可结合 loopback 适配器中的拆分工具与 metadata 约定来实现生产级 SSE 适配器。
+
 ---
 
 ## 8. 存储配置（持久化）
@@ -288,6 +331,14 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - 将用户输入转交给运行时（典型集成中不要直接调用 `sendMessage`）。
 - 渲染智能体消息与系统提醒。
 - PDP 返回需要显式同意时，展示同意 UI。
+- 接收流式预览 chunk（token-by-token）以及最终持久化消息。
+- `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览的积累、去重与同意处理样板代码。
+
+- **为何需要去重**  
+  假设传输层先逐 token 推送“好的，我来查一下……”，随后又把同一句完整文本作为最终 `NeuronMessage` 返回。如果不在最终消息抵达时移除预览气泡，用户界面会出现两条内容相同的气泡（预览 + 持久化）。通过记录 `messageId`/`streamId` 并在 `handleMessages(_:)` 中清除，就能避免这种重复。
+
+- **为何需要去重**  
+  假设传输层先逐 token 推送“好的，我来查一下……”，随后又把同一句完整文本作为最终 `NeuronMessage` 返回。如果不在最终消息抵达时移除预览气泡，用户界面会出现两条内容相同的气泡（预览 + 持久化）。通过记录 `messageId`/`streamId` 并在 `handleMessages(_:)` 中清除，就能避免这种重复。
 
 ### 消息模型：`NeuronMessage`
 
@@ -304,6 +355,7 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 
 - `messagesPublisher(sessionId:isDelta:initialSnapshot:)` —— 通过 `ConvoSession.bindUI` 绑定时，默认采用“增量模式 + 初始快照”（`isDelta: true, initialSnapshot: .full`）。即首次推送为完整历史，其后仅推送新变更。若希望每次都是完整历史，可传 `isDelta: false`。
 - `messagesSnapshot(sessionId:limit:before:)` —— 一次性分页快照，适合列表首屏或下拉加载更早历史。
+- `streamingUpdatesPublisher(sessionId:)` —— 提供 `InboundStreamChunk` 流式消息，在最终 `NeuronMessage` 入库之前即可展示打字/预览提示。
 
 #### 典型绑定示例
 
@@ -312,12 +364,21 @@ import Combine
 
 final class MyConvoAdapter {
   private var cancellables = Set<AnyCancellable>()
+  private var previews: [UUID: String] = [:]
 
   func bind(session: ConvoSession) {
     session.messagesPublisher
       .receive(on: DispatchQueue.main)
       .sink { [weak self] messages in
         self?.render(messages: messages)
+        self?.dedupeStreamingPreviews(with: messages)
+      }
+      .store(in: &cancellables)
+
+    session.streamingUpdatesPublisher()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] chunk in
+        self?.handleStreaming(chunk)
       }
       .store(in: &cancellables)
   }
@@ -329,10 +390,30 @@ final class MyConvoAdapter {
   private func render(messages: [NeuronMessage]) {
     // 在此更新你的视图模型或界面
   }
+
+  private func handleStreaming(_ chunk: InboundStreamChunk) {
+    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
+    let delta = String(decoding: chunk.data, as: UTF8.self)
+    previews[id, default: ""] += delta
+    // 可在此把 previews[id] 绑定到“智能体正在输入”气泡
+    if chunk.isFinal {
+      awaitingFinalMessage.insert(id)
+    }
+  }
+
+  private func dedupeStreamingPreviews(with messages: [NeuronMessage]) {
+    for message in messages {
+      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
+        previews.removeValue(forKey: message.id)
+        // 同步清理 UI 上的流式预览
+        // viewModel.clearStreamingMessage(id: message.id)
+      }
+    }
+  }
 }
 ```
 
-> 提示：在 SwiftUI 中可将消息存入 `@Published` 数组，并通过 `ForEach(messages)` 绑定；稳定的 `id` 能确保快速流式更新下依然高效 diff。
+> 提示：在 SwiftUI 中可将消息存入 `@Published` 数组，并通过 `ForEach(messages)` 绑定；稳定的 `id` 能确保快速流式更新下依然高效 diff。将预览文本单独存储，待最终 `NeuronMessage` 抵达后清除或合并，以避免重复气泡，并在预览阶段记录需要等待的 `messageId`，以便达到去重效果。
 
 ### 会话中心绑定（推荐）
 

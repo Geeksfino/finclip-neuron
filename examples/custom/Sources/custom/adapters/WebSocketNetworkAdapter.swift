@@ -1,92 +1,116 @@
 import Foundation
-import Combine
 import NeuronKit
 
-/// WebSocket adapter implementing the NetworkAdapter protocol.
-/// This is a mock implementation that simulates WebSocket behavior for testing purposes.
-/// In a real implementation, this would integrate with an actual WebSocket library.
-public final class MyWebSocketNetworkAdapter: NetworkAdapter {
+/// Mock WebSocket adapter leveraging `BaseNetworkAdapter` to demonstrate streaming chunks.
+/// Replace the simulated timers with a real WebSocket implementation (e.g. `URLSessionWebSocketTask`).
+public final class MyWebSocketNetworkAdapter: BaseNetworkAdapter {
   private let url: URL?
+  private let queue = DispatchQueue(label: "websocket.adapter")
   private var isStarted = false
-
-  // NetworkAdapter required callback properties
-  public var onOutboundData: ((Data) -> Void)?
-  public var onStateChange: ((NetworkState) -> Void)?
-  public var inboundDataHandler: ((Data) -> Void)?
-
-  private let inboundSubject = PassthroughSubject<Data, Never>()
-  private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
-
-  public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
-  public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
 
   public init(url: URL? = nil) {
     self.url = url
+    super.init()
   }
 
-  public func start() {
+  public override func start() {
     guard !isStarted else { return }
     isStarted = true
-    
-    // Simulate connection process with enhanced error handling
-    stateSubject.send(.connecting)
-    onStateChange?(.connecting)
-    
-    // Simulate potential connection scenarios
-    DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) { [weak self] in
-      guard let self = self, self.isStarted else { return }
-      
-      // In a real implementation, this would handle actual connection errors
+    updateState(.connecting)
+
+    queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+      guard let self else { return }
       if let url = self.url, url.absoluteString.contains("invalid") {
-        let error = NetworkError(
-          code: "connection_failed",
-          message: "Failed to connect to WebSocket server",
-          underlyingError: NSError(domain: "WebSocketError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
-        )
-        self.stateSubject.send(.error(error))
-        self.onStateChange?(.error(error))
+        let error = NetworkError(code: "connection_failed",
+                                 message: "Failed to connect to WebSocket server",
+                                 underlyingError: NSError(domain: "WebSocketError",
+                                                          code: -1,
+                                                          userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+        self.updateState(.error(error))
       } else {
-        self.stateSubject.send(.connected)
-        self.onStateChange?(.connected)
+        self.updateState(.connected)
       }
     }
   }
 
-  public func stop() {
+  public override func stop() {
+    guard isStarted else { return }
     isStarted = false
-    stateSubject.send(.disconnected)
-    onStateChange?(.disconnected)
+    updateState(.disconnected)
   }
 
-  public func send(_ data: Data) {
-    guard isStarted else { 
-      // Log error but don't propagate (NeuronKit handles retries)
-      print("[WebSocket] Attempted to send data while adapter is not started")
-      return 
+  public override func sendToNetworkComponent(_ data: Any) {
+    guard isStarted, let payload = data as? Data else {
+      print("[WebSocket] Attempted to send while not connected or payload not `Data`")
+      return
     }
-    onOutboundData?(data)
-    
-    // Simulate network send
-    // In a real implementation, this would send data via WebSocket
-    // For now, simulate successful send followed by response
-    
-    // First, emit an ack frame for the outbound message id (parse id from JSON generically)
-    if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let idStr = obj["id"] as? String,
-       let _ = UUID(uuidString: idStr) {
-      let ack: [String: String] = ["ack_for": idStr]
-      if let ackData = try? JSONSerialization.data(withJSONObject: ack) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) { [weak self] in
-          self?.inboundSubject.send(ackData)
-          self?.inboundDataHandler?(ackData)
-        }
+
+    onOutboundData?(payload)
+
+    guard let envelope = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          let userIntent = envelope["userIntent"] as? [String: Any],
+          let content = userIntent["content"] as? [String: Any],
+          let text = content["text"] as? String,
+          let conversationId = envelope["conversationId"] as? String,
+          let sessionId = UUID(uuidString: conversationId)
+    else {
+      queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        self?.handleInboundData(payload)
+      }
+      return
+    }
+
+    emitStreamingPreview("Echo via WebSocket: \(text)", sessionId: sessionId)
+
+    // Simulate final full message
+    let wire = WireMessage(
+      id: UUID(),
+      conversationId: sessionId,
+      sender: "agent",
+      content: "Echo via WebSocket: \(text)",
+      timestamp: Date(),
+      meta: nil as [String: String]?
+    )
+
+    if let encoded = try? JSONEncoder().encode(wire) {
+      queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        self?.handleInboundData(encoded)
       }
     }
-    
-    // Then echo back as if agent replied
-    DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [weak self] in
-      self?.inboundSubject.send(data)
-      self?.inboundDataHandler?(data)
+  }
+
+  private func emitStreamingPreview(_ text: String, sessionId: UUID) {
+    let streamId = "ws-stream-" + UUID().uuidString
+    let messageId = UUID()
+    let tokens = makeChunks(text: text, size: 30)
+
+    for (index, token) in tokens.enumerated() {
+      let chunk = InboundStreamChunk(
+        streamId: streamId,
+        sequence: index,
+        data: Data(token.utf8),
+        isFinal: index == tokens.count - 1,
+        messageId: messageId,
+        conversationId: sessionId,
+        sessionId: sessionId,
+        metadata: ["transport": "websocket", "kind": "preview"]
+      )
+
+      queue.asyncAfter(deadline: .now() + Double(index) * 0.12) { [weak self] in
+        self?.inboundPartialDataHandler?(chunk)
+      }
     }
+  }
+
+  private func makeChunks(text: String, size: Int) -> [String] {
+    guard text.count > size else { return [text] }
+    var result: [String] = []
+    var current = text.startIndex
+    while current < text.endIndex {
+      let end = text.index(current, offsetBy: size, limitedBy: text.endIndex) ?? text.endIndex
+      result.append(String(text[current..<end]))
+      current = end
+    }
+    return result
   }
 }

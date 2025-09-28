@@ -5,66 +5,101 @@ import NeuronKit
 // MARK: - Mock Network Adapter (shows proper flow)
 
 /// This shows how agent responses would flow through a real NetworkAdapter
-class MockAgentNetworkAdapter: NetworkAdapter {
+final class MockAgentNetworkAdapter: NetworkAdapter {
   private let inboundSubject = PassthroughSubject<Data, Never>()
   private let stateSubject = CurrentValueSubject<NetworkState, Never>(.disconnected)
+  private let queue = DispatchQueue(label: "mock.network.adapter")
   private var currentSessionId: UUID?
-  
-  // MARK: NetworkAdapter required callback properties
-  // NeuronKit sets these so the adapter can report events and hand data back in
+
   var onOutboundData: ((Data) -> Void)?
   var onStateChange: ((NetworkState) -> Void)?
   var inboundDataHandler: ((Data) -> Void)?
-  
-  public var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
-  public var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
-  
+  var inboundPartialDataHandler: ((InboundStreamChunk) -> Void)?
+
+  var inbound: AnyPublisher<Data, Never> { inboundSubject.eraseToAnyPublisher() }
+  var state: AnyPublisher<NetworkState, Never> { stateSubject.eraseToAnyPublisher() }
+
   func start() {
     stateSubject.send(.connected)
     onStateChange?(.connected)
   }
-  
+
   func stop() {
     stateSubject.send(.disconnected)
     onStateChange?(.disconnected)
   }
-  
+
   func send(_ data: Data) {
-    // In a real adapter, this would send over WebSocket/HTTP
     print("📡 [MockNetwork] Sending to agent: \(data.count) bytes")
-    // Signal that data is being sent out over the network (observability hook)
     onOutboundData?(data)
-    
-    // Extract session ID from outbound message for response
-    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let conversationId = json["conversationId"] as? String,
-       let sessionId = UUID(uuidString: conversationId) {
-      self.currentSessionId = sessionId
-      
-      // Simulate agent response after a delay
-      DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
-        self.simulateAgentDirective(sessionId: sessionId)
+
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let conversationId = json["conversationId"] as? String,
+          let sessionId = UUID(uuidString: conversationId)
+    else { return }
+
+    currentSessionId = sessionId
+
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.35) { [weak self] in
+      self?.simulateStreamingMessage(sessionId: sessionId)
+    }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 1.25) { [weak self] in
+      self?.simulateAgentDirective(sessionId: sessionId)
+    }
+  }
+
+  private func simulateStreamingMessage(sessionId: UUID) {
+    guard let outboundId = currentSessionId,
+          let handler = inboundPartialDataHandler else { return }
+
+    let messageId = UUID()
+    let streamId = "mock-stream-" + UUID().uuidString
+    let preview = "Preparing approval flow for your payment request…"
+    let tokens = makeChunks(text: preview, size: 28)
+
+    for (index, token) in tokens.enumerated() {
+      let chunk = InboundStreamChunk(
+        streamId: streamId,
+        sequence: index,
+        data: Data(token.utf8),
+        isFinal: index == tokens.count - 1,
+        messageId: messageId,
+        conversationId: outboundId,
+        sessionId: outboundId,
+        metadata: ["transport": "mock", "kind": "preview"]
+      )
+
+      queue.asyncAfter(deadline: .now() + Double(index) * 0.18) {
+        print("📨 [MockNetwork] Streaming chunk #\(index) final=\(chunk.isFinal)")
+        handler(chunk)
       }
     }
   }
-  
+
+  private func makeChunks(text: String, size: Int) -> [String] {
+    guard text.count > size else { return [text] }
+    var result: [String] = []
+    var current = text.startIndex
+    while current < text.endIndex {
+      let end = text.index(current, offsetBy: size, limitedBy: text.endIndex) ?? text.endIndex
+      result.append(String(text[current..<end]))
+      current = end
+    }
+    return result
+  }
+
   private func simulateAgentDirective(sessionId: UUID) {
     print("🤖 [MockNetwork] Agent sending directive for session: \(sessionId)")
-    
-    // This is what an agent would send over the network
+
     let agentResponse = InboundEnvelope(
       type: .directives,
       sessionId: sessionId,
-      directives: [
-        ActionProposal(id: UUID(), feature: "open_payment", args: ["amount": "25.00"])
-      ]
+      directives: [ActionProposal(id: UUID(), feature: "open_payment", args: ["amount": "25.00"])]
     )
-    
+
     if let data = try? JSONEncoder().encode(agentResponse) {
-      // This is the key: NetworkAdapter publishes data → NeuronKit receives it
       print("📨 [MockNetwork] Publishing agent directive to NeuronKit")
       inboundSubject.send(data)
-      // Also invoke the inboundDataHandler callback if set
       inboundDataHandler?(data)
     }
   }

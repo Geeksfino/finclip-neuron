@@ -45,6 +45,23 @@ class CliConvoAdapter: BaseConvoUIAdapter {
     fflush(stdout) // Ensure the prompt is displayed immediately
   }
 
+  override func handleStreamingChunk(_ chunk: InboundStreamChunk) {
+    let previewText = String(decoding: chunk.data, as: UTF8.self)
+    guard !previewText.isEmpty else { return }
+
+    DispatchQueue.main.async {
+      self.chatViewModel.updateStreamingPreview(id: chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID(),
+                                                text: previewText,
+                                                isFinal: chunk.isFinal)
+    }
+
+    // CLI output
+    print("\r\u{1B}[1A\u{1B}[K", terminator: "")
+    print("💬 [stream] \(previewText)")
+    print("> ", terminator: "")
+    fflush(stdout)
+  }
+
   // Override to show consent UI - integrate with your UI framework
   override func handleConsentRequest(proposalId: UUID, sessionId: UUID, feature: String, args: [String: Any]) {
     let separator = String(repeating: "=", count: 50)
