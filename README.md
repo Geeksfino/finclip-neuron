@@ -324,25 +324,73 @@ Note: Implementations may enable a subset per platform.
 
 ## 7. Network Adapters (for custom implementation)
 
-Implement the `NetworkAdapter` protocol to bring your own transport.
+When you want NeuronKit to communicate over your own transport (WebSocket, HTTP polling, SSE, gRPC, Bluetooth, etc.), you implement the `NetworkAdapter` protocol. The adapter sits between NeuronKit’s runtime and your server:
 
-Required surface:
+1. NeuronKit calls `send(_:)` whenever it has outbound JSON to deliver. Your adapter is responsible for serializing the request onto the wire (e.g., write to a socket, send an HTTP request, push to a gRPC stream).
+2. Your transport delivers responses or streaming tokens. The adapter feeds those bytes back into NeuronKit by calling the provided inbound handlers.
+3. The adapter reports connection state transitions so NeuronKit can surface them to the UI and apply backoff/retry policies.
 
-- Properties: `onOutboundData: ((Data) -> Void)?`, `onStateChange: ((NetworkState) -> Void)?`, `inboundDataHandler: ((Data) -> Void)?`
-- Publishers: `inbound: AnyPublisher<Data, Never>`, `state: AnyPublisher<NetworkState, Never>`
-- Methods: `start()`, `stop()`, `send(_ data: Data)`
+### 7.1 Lifecycle & Required Surface
 
-Guidance:
+Every adapter must provide the following members:
 
-- Call `onStateChange?` as you transition through `.connecting`, `.connected`, `.reconnecting`, `.disconnected`, `.error`.
-- Call `inboundSubject.send(data)` and `inboundDataHandler?(data)` when bytes arrive from the server.
-- Calling `onOutboundData?(data)` is optional for observability. Avoid it in loopback/mock paths to prevent re-entrancy.
+- **Properties**
+  - `onStateChange: ((NetworkState) -> Void)?` — Call this whenever your transport changes state (connecting/connected/reconnecting/disconnected/error).
+  - `inboundDataHandler: ((Data) -> Void)?` — Call with complete message payloads (JSON) that NeuronKit should persist and route. This is typically used for non-streaming responses or the final frame of a streaming exchange.
+  - `onOutboundData: ((Data) -> Void)?` — Optional callback invoked when NeuronKit enqueues an outbound payload; useful for logging/metrics. Avoid calling back into `send(_:)` inside this closure to prevent re-entrancy loops.
 
-See examples:
+- **Publishers**
+  - `inbound: AnyPublisher<Data, Never>` — Convenience publisher already wired up by `BaseNetworkAdapter`; most custom adapters simply use `inboundDataHandler` instead of emitting directly.
+  - `state: AnyPublisher<NetworkState, Never>` — Emits connection state transitions. Again, `BaseNetworkAdapter` helps back this with `onStateChange` updates.
+
+- **Methods**
+  - `start()` — Create/connect your transport (e.g., open WebSocket, start polling loop). Set state to `.connecting`/`.connected` as appropriate.
+  - `stop()` — Tear down the transport cleanly and emit `.disconnected`.
+  - `send(_ data: Data)` — Serialize the outbound bytes onto the wire. If your protocol requires acknowledging the send, do so here;
+    otherwise just write and return.
+
+The `BaseNetworkAdapter` class already includes `inboundSubject` and a default implementation of the publishers; subclass it to avoid re-implementing boilerplate.
+
+### 7.2 How Inbound Data Flows Back
+
+When your server responds, pass those bytes back to NeuronKit:
+
+- For **complete responses** (non-streaming), simply call `handleInboundData(_:)` or `inboundDataHandler?(payload)` with the full data blob. NeuronKit will parse and persist the message, then forward it to ConvoUI adapters.
+- For **streaming transports**, emit each preview chunk through `inboundPartialDataHandler?(chunk)` (available on `BaseNetworkAdapter`). Construct an `InboundStreamChunk` with `streamId`, `sequence`, raw bytes, and a boolean `isFinal`. After the final chunk, call `handleInboundData(_:)` or `inboundDataHandler?(payload)` with the assembled response so it becomes the persisted message.
+- Always call `onStateChange?` to reflect connectivity (e.g., `.connected` once the socket handshake completes, `.reconnecting` during retry, `.error` with a reason on failure).
+
+### 7.3 Sending Outbound Payloads
+
+NeuronKit invokes `send(_:)` with UTF-8 JSON bytes. Typical implementations:
+
+- **WebSocket** — Convert `Data` to string or send raw binary depending on your server expectation, then call the socket’s send API.
+- **HTTP** — Wrap the data in an HTTP body and post to your agent endpoint. For streaming responses, consider using long polling or upgrading to SSE/WebSocket.
+- **SSE/long polling** — `send(_:)` might trigger an HTTP request while `inboundDataHandler` processes the eventual response.
+- **Custom transports** — For example, Bluetooth or gRPC. Serialize the JSON into your frame format and deliver through the appropriate SDK methods.
+
+If your transport supports acknowledgements or needs to throttle sends, handle that within `send(_:)` (e.g., queue until the connection is ready and then flush).
+
+### 7.4 Streaming Considerations
+
+- Coordinate with the backend on how each frame indicates preview vs final completion (see **Server contract** below). For SSE, this might be an `event: preview` / `event: complete` pattern or an `is_final` field in the JSON chunk.
+- Use `InboundStreamChunk` for every preview segment. The `sequence` lets the UI render tokens in order; `messageId` ties the preview to the eventual persisted message.
+- Call `handleInboundData(_:)` exactly once per conversation message—typically on the final chunk—to persist the full response and notify observers.
+- Remember to clear any buffering state inside the adapter when the stream completes.
+
+### 7.5 Example Flow
+
+```plaintext
+NeuronKit send(_:)  →  Adapter writes to transport  →  Server replies (preview)  
+→ Adapter emits InboundStreamChunk via inboundPartialDataHandler  →  UI shows typing token  
+→ Server sends final payload  →  Adapter calls handleInboundData(_)  →  NeuronKit persists + notifies UI
+```
+
+### 7.6 Reference Implementations
 
 - `examples/custom/Sources/custom/adapters/WebSocketNetworkAdapter.swift`
 - `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
-- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift` (synthetic, no real network)
+- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift` (synthetic)
+- Template: `docs/templates/TemplateSSEAdapter.swift`
 
 ### Streaming adapters & SSE blueprint
 
@@ -400,6 +448,7 @@ final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
     }
   }
 }
+```
 
 ---
 

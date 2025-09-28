@@ -235,25 +235,65 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 
 ## 7. 网络适配器（自定义实现）
 
-实现 `NetworkAdapter` 协议即可接入自有网络传输。
+当你希望 NeuronKit 通过自定义传输层通信（WebSocket、HTTP 轮询、SSE、gRPC、蓝牙等）时，需要实现 `NetworkAdapter` 协议。适配器位于 NeuronKit 运行时与服务器之间：
 
-必需表面：
+1. 运行时在有出站 JSON 数据时调用 `send(_:)`。适配器负责把字节写入具体传输层（socket、HTTP、gRPC 等）。
+2. 服务器返回响应或流式 token 时，适配器把字节交回 NeuronKit。
+3. 适配器汇报连接状态，便于运行时和 UI 做重试、提示。
 
-- 属性：`onOutboundData: ((Data) -> Void)?`, `onStateChange: ((NetworkState) -> Void)?`, `inboundDataHandler: ((Data) -> Void)?`
-- 发布者：`inbound: AnyPublisher<Data, Never>`, `state: AnyPublisher<NetworkState, Never>`
-- 方法：`start()`, `stop()`, `send(_ data: Data)`
+### 7.1 生命周期与必备接口
 
-实践建议：
+- **属性**
+  - `onStateChange: ((NetworkState) -> Void)?` —— 连接状态变化时调用（连接中/已连接/重连/断开/错误）。
+  - `inboundDataHandler: ((Data) -> Void)?` —— 收到完整响应（常为最终帧）时调用，让 NeuronKit 持久化并分发。
+  - `onOutboundData: ((Data) -> Void)?` —— 可选，用于日志或链路追踪。避免在回调里再次调用 `send(_:)` 以免重入。
 
-- 状态变更时调用 `onStateChange?`（`.connecting/.connected/.reconnecting/.disconnected/.error`）。
-- 收到网络数据时调用 `inboundSubject.send(data)` 和 `inboundDataHandler?(data)`。
-- `onOutboundData?(data)` 仅用于可观察性（可选）；在 loopback/mock 路径中避免调用以防止重入。
+- **Publishers**
+  - `inbound: AnyPublisher<Data, Never>` —— `BaseNetworkAdapter` 已帮忙实现，多数适配器直接用 `inboundDataHandler` 即可。
+  - `state: AnyPublisher<NetworkState, Never>` —— 状态流，可供 UI 订阅。
 
-示例：
+- **方法**
+  - `start()` —— 建立连接或开启轮询，设置状态为 `.connecting`/`.connected`。
+  - `stop()` —— 关闭连接，释放资源，发出 `.disconnected`。
+  - `send(_ data: Data)` —— 写出字节；若需要确认或排队，在此处理。
+
+建议继承 `BaseNetworkAdapter`，它提供 `inboundSubject`、publishers 等基础能力。
+
+### 7.2 入站数据回流
+
+- **完整响应**：调用 `handleInboundData(_:)` 或 `inboundDataHandler?(payload)`，NeuronKit 会解析、存储并通知 UI。
+- **流式响应**：每个 token 构造 `InboundStreamChunk`，通过 `inboundPartialDataHandler?(chunk)` 发送，`sequence` 保证顺序，`messageId` 用于最终去重。最后再调用 `handleInboundData(_:)` 将完整结果入库。
+- **状态更新**：在握手成功、重连、断线、异常时调用 `onStateChange?`。
+
+### 7.3 出站请求发送
+
+- **WebSocket** —— 发送文本或二进制帧。
+- **HTTP** —— 将数据放入请求体；若需流式可用长轮询或 SSE。
+- **SSE/长轮询** —— `send(_:)` 触发 HTTP 请求，等待服务端推送。
+- **自定义协议** —— 如蓝牙、gRPC，序列化 JSON 并调用相应 SDK。
+
+如需确认/节流，可在 `send(_:)` 中排队或等待 ACK。
+
+### 7.4 流式注意事项
+
+- 与后端约定“预览”和“最终”的标记方式（参见下文“服务端约定”）。
+- 使用 `InboundStreamChunk` 传递预览 token，`sequence`/`messageId` 有助于 UI 合并、去重。
+- 每条消息仅调用一次 `handleInboundData(_:)`，通常在最终帧。
+- 流结束时清理适配器缓存，避免内存泄露。
+
+### 7.5 数据流示意
+
+```plaintext
+NeuronKit send(_:) → 适配器写入传输层 → 服务端返回预览 → inboundPartialDataHandler 发送 token → UI 展示预览
+→ 服务端返回最终帧 → 适配器调用 handleInboundData(_) → NeuronKit 持久化并通知 UI
+```
+
+### 7.6 参考实现
 
 - `examples/custom/Sources/custom/adapters/WebSocketNetworkAdapter.swift`
 - `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
-- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift`（回环示例）
+- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift`
+- 模板：`docs/templates/TemplateSSEAdapter.swift`
 
 ### 流式适配器与 SSE 蓝图
 
@@ -334,9 +374,6 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - PDP 返回需要显式同意时，展示同意 UI。
 - 接收流式预览 chunk（token-by-token）以及最终持久化消息。
 - `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览的积累、去重与同意处理样板代码。
-
-- **为何需要去重**  
-  假设传输层先逐 token 推送“好的，我来查一下……”，随后又把同一句完整文本作为最终 `NeuronMessage` 返回。如果不在最终消息抵达时移除预览气泡，用户界面会出现两条内容相同的气泡（预览 + 持久化）。通过记录 `messageId`/`streamId` 并在 `handleMessages(_:)` 中清除，就能避免这种重复。
 
 - **为何需要去重**  
   假设传输层先逐 token 推送“好的，我来查一下……”，随后又把同一句完整文本作为最终 `NeuronMessage` 返回。如果不在最终消息抵达时移除预览气泡，用户界面会出现两条内容相同的气泡（预览 + 持久化）。通过记录 `messageId`/`streamId` 并在 `handleMessages(_:)` 中清除，就能避免这种重复。
