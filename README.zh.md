@@ -373,29 +373,126 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - 渲染智能体消息与系统提醒。
 - PDP 返回需要显式同意时，展示同意 UI。
 - 接收流式预览 chunk（token-by-token）以及最终持久化消息。
-- `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览的积累、去重与同意处理样板代码。
+- `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览积累、去重以及同意处理样板代码。
 
+- **流式预览如何处理**  
+  重写 `handleStreamingChunk(_:)`，按照 `chunk.messageId`（或 `streamId`）累计文本，并在 UI 中展示“正在输入”效果。若 `chunk.isFinal == true`，需记录该消息以便最终消息落库时清除预览。
 - **为何需要去重**  
-  假设传输层先逐 token 推送“好的，我来查一下……”，随后又把同一句完整文本作为最终 `NeuronMessage` 返回。如果不在最终消息抵达时移除预览气泡，用户界面会出现两条内容相同的气泡（预览 + 持久化）。通过记录 `messageId`/`streamId` 并在 `handleMessages(_:)` 中清除，就能避免这种重复。
+  例如服务端先逐 token 推送“好的，我来查一下……”，随后将同一句完整文本作为最终 `NeuronMessage` 返回。如果不清除预览，用户会看到两条内容相同的气泡（预览 + 持久化）。追踪 `messageId`/`streamId` 并在最终消息到达后清除即可避免重复。
+- **完成时如何合并**  
+  在 `handleMessages(_:)` 中对比最新的 `NeuronMessage` 与预览文本，若内容一致则移除预览或合并内容，确保界面只保留最终气泡。
+- **同意与系统事件**  
+  重写 `handleConvoEvent(_:)` / `handleConsentRequest`，在 UI 中呈现审批提示或系统消息。
+- **发送出站消息**  
+  调用 `sendMessage(_:)` 或 `sendMessage(_:context:)` 将用户输入传回 NeuronKit。
 
-### 消息模型：`NeuronMessage`
+### 9.1 流式预览示例适配器
 
-适配器通过 `ConvoSession.messagesPublisher`（或运行时级别的 `messagesPublisher`）接收 `NeuronMessage` 数组。每条消息都已过标准化，直接可用于渲染。
+```swift
+import Combine
 
-- **content** —— 主文本内容。来源为 `wire.text ?? wire.content ?? ""`，因此后端可发送 `text` 或 `content` 字段。若为空字符串，请结合 `attachments` 或 `components` 渲染。
-- **sender** —— 枚举（`.user`/`.agent`/`.system`/`.tool`），用于区分气泡样式与归属。
-- **attachments** —— 附件数组，包含 `displayName`、`mimeType`、可选 `url`、可选内联 `dataBase64` 与自定义 `meta`。存在 `url` 时建议惰性下载；存在 `dataBase64` 时可直接渲染预览。
-- **components** —— 结构化 UI 组件，由 `type`/`variant` 与可选 `payload` 描述。你可以将其映射为自定义 SwiftUI / UIKit 视图。
-- **metadata** —— 可选的键值对，用于分析标签或轻量提示（如 "intent"、"topic"）。
-- **timestamp & id** —— 稳定字段，便于排序、去重与持久化，适配 diffable 数据源。
+final class MyConvoAdapter: BaseConvoUIAdapter {
+  private let viewModel: ChatViewModel
+  private var cancellables = Set<AnyCancellable>()
+  private var previews: [UUID: String] = [:]
+  private var awaitingFinalMessage: Set<UUID> = []
 
-#### 流式 API
+  init(viewModel: ChatViewModel) {
+    self.viewModel = viewModel
+    super.init()
+  }
 
-- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` —— 通过 `ConvoSession.bindUI` 绑定时，默认采用“增量模式 + 初始快照”（`isDelta: true, initialSnapshot: .full`）。即首次推送为完整历史，其后仅推送新变更。若希望每次都是完整历史，可传 `isDelta: false`。
-- `messagesSnapshot(sessionId:limit:before:)` —— 一次性分页快照，适合列表首屏或下拉加载更早历史。
-- `streamingUpdatesPublisher(sessionId:)` —— 提供 `InboundStreamChunk` 流式消息，在最终 `NeuronMessage` 入库之前即可展示打字/预览提示。
+  override func bind(to session: ConvoSession) {
+    super.bind(to: session)
 
-#### 典型绑定示例
+    session.messagesPublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] messages in
+        self?.viewModel.messages = messages
+        self?.dedupeStreamingPreviews(with: messages)
+      }
+      .store(in: &cancellables)
+
+    session.streamingUpdatesPublisher()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] chunk in
+        self?.handleStreamingChunk(chunk)
+      }
+      .store(in: &cancellables)
+  }
+
+  override func handleStreamingChunk(_ chunk: InboundStreamChunk) {
+    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
+    let delta = String(decoding: chunk.data, as: UTF8.self)
+    previews[id, default: ""] += delta
+
+    viewModel.showPreview(id: id, text: previews[id] ?? "")
+
+    if chunk.isFinal {
+      awaitingFinalMessage.insert(id)
+    }
+  }
+
+  override func handleMessages(_ messages: [NeuronMessage]) {
+    super.handleMessages(messages)
+
+    for message in messages {
+      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
+        previews.removeValue(forKey: message.id)
+        viewModel.clearPreview(id: message.id)
+      }
+    }
+  }
+
+  func send(text: String, via session: ConvoSession) {
+    Task { try await session.sendMessage(text) }
+  }
+}
+```
+
+### 9.2 会话绑定（推荐）
+
+```swift
+let convo = runtime.openConversation(agentId: UUID())
+let adapter = MyConvoAdapter(viewModel: chatViewModel)
+
+convo.bindUI(adapter)
+
+// 稍后：当 UI 不再活跃时解绑
+convo.unbindUI()
+
+convo.close()
+```
+
+### 9.3 多会话示例
+
+```swift
+let supportConvo = runtime.openConversation(agentId: UUID())
+let salesConvo = runtime.openConversation(agentId: UUID())
+
+supportConvo.bindUI(supportAdapter)
+salesConvo.bindUI(salesAdapter)
+
+supportConvo.close()
+salesConvo.close()
+```
+
+### 9.4 消息模型：`NeuronMessage`
+
+- `content` —— 主文本内容（`wire.text ?? wire.content ?? ""`）；若为空，请结合 `attachments` 或 `components` 渲染。
+- `sender` —— `.user` / `.agent` / `.system` / `.tool`，用于区分气泡样式与归属。
+- `attachments` —— 含 `displayName`、`mimeType`、可选 `url`、可选内联 `dataBase64` 与自定义 `meta`。
+- `components` —— 结构化 UI 组件，由 `type` / `variant` 与可选 `payload` 描述，可映射到自定义视图。
+- `metadata` —— 可选键值提示（如 intent、topic）。
+- `timestamp` / `id` —— 稳定字段，便于排序、去重与持久化，适配 diffable 数据源。
+
+### 9.5 流式 API
+
+- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` —— `ConvoSession.bindUI` 默认采用“增量 + 初始快照”（`isDelta: true, initialSnapshot: .full`）。若需每次完整历史，可传 `isDelta: false`。
+- `messagesSnapshot(sessionId:limit:before:)` —— 一次性分页快照，适合列表首屏或加载更早的历史消息。
+- `streamingUpdatesPublisher(sessionId:)` —— 提供 `InboundStreamChunk` 流式消息，让 UI 在最终 `NeuronMessage` 入库前展示预览。
+
+### 9.6 典型绑定示例
 
 ```swift
 import Combine
@@ -403,6 +500,7 @@ import Combine
 final class MyConvoAdapter {
   private var cancellables = Set<AnyCancellable>()
   private var previews: [UUID: String] = [:]
+  private var awaitingFinalMessage: Set<UUID> = []
 
   func bind(session: ConvoSession) {
     session.messagesPublisher

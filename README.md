@@ -452,34 +452,213 @@ final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
 
 ---
 
-## 8. ConvoUI Adapters (for custom implementation)
+## 8. Storage configuration (persistence)
 
-A ConvoUI adapter bridges your UI with NeuronKit.
+NeuronKit uses a local message store to persist conversation history. By default, persistence is enabled. Configure it when creating `NeuronKitConfig`:
 
-- **Inbound flow**
+```swift
+let config = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .persistent // default
+)
 
-  - It renders inbound messages and system notifications.
-  - It receives streaming preview chunks as well as final persisted messages.
+// For tests or demos where persistence is not needed:
+let inMemory = NeuronKitConfig(
+  serverURL: URL(string: "wss://agent.example.com")!,
+  deviceId: "demo-device",
+  userId: "demo-user",
+  storage: .inMemory
+)
+```
 
-- **Streaming previews**
+- Use `runtime.messagesPublisher(sessionId:)` (or `convo.messagesPublisher`) to stream history plus updates.
+- Use `runtime.messagesSnapshot(sessionId:limit:before:)` to fetch one-shot paginated history for list previews or initial render.
 
-  Override `handleStreamingChunk(_:)` to show partial responses. A common pattern is to accumulate text keyed by `chunk.messageId` and feed it into a “typing” row in your chat UI. When `chunk.isFinal` is `true`, mark the preview so it can be cleared once the persisted `NeuronMessage` arrives. See `docs/templates/TemplateConvoUIAdapter.swift` for a ready-to-copy subclass that wires these pieces together.
+---
 
-- **Why dedup matters**
+## 9. ConvoUI Adapters (for custom implementation)
 
-  Imagine the transport streams “Sure, let me check that…” token by token, and a few hundred milliseconds later the server returns the exact same sentence inside the final persisted message. Without deduplication the user would see two identical bubbles (“preview” + “final”). Tracking `messageId`/`streamId` and clearing previews when the persisted message lands eliminates this duplicate.
+A ConvoUI adapter bridges your UI with NeuronKit:
 
-- **Dedup on completion**
+- Forwards user input into the runtime (your UI should not call `sendMessage` directly).
+- Renders inbound messages and system notifications.
+- Shows consent prompts when PDP requires explicit approval.
+- Receives streaming preview chunks (token-by-token) as well as final persisted messages.
+- `docs/templates/TemplateConvoUIAdapter.swift` offers a copy-ready subclass with streaming aggregation, deduplication, and consent-handling boilerplate.
 
-  In `handleMessages(_:)`, compare any pending preview against the stored `NeuronMessage` (same id) and either update content or clear the preview to avoid duplicate bubbles.
+- **Handling streaming previews**  
+  Override `handleStreamingChunk(_:)` to accumulate text keyed by `chunk.messageId` and feed it into a “typing” row. When `chunk.isFinal` is `true`, mark that preview so you can clear it once the persisted `NeuronMessage` arrives.
+- **Why dedup matters**  
+  Imagine the transport streams “Sure, let me check that…” token by token, then sends the exact same sentence in the final persisted message. Without deduplication the user sees two identical bubbles (“preview” + “final”). Track `messageId`/`streamId` and clear previews when the final message lands to avoid duplicates.
+- **Dedup on completion**  
+  In `handleMessages(_:)`, compare any pending preview against the stored `NeuronMessage` (same id). Remove the preview or merge the content so only the persisted bubble remains.
+- **Consent & system events**  
+  Override `handleConvoEvent(_:)` and `handleConsentRequest` if your UI must surface directive approvals or system notifications.
+- **Sending outbound messages**  
+  Call `sendMessage(_:)` / `sendMessage(_:context:)` once the user submits input.
 
-- **Consent & system events**
+### 9.1 Sample adapter with streaming previews
 
-  Override `handleConvoEvent(_:)` and `handleConsentRequest` if your UI needs to surface directive approvals.
+```swift
+import Combine
 
-- **Sending outbound messages**
+final class MyConvoAdapter: BaseConvoUIAdapter {
+  private let viewModel: ChatViewModel
+  private var cancellables = Set<AnyCancellable>()
+  private var previews: [UUID: String] = [:]
+  private var awaitingFinalMessage: Set<UUID> = []
 
-  Call `sendMessage(_:)` / `sendMessage(_:context:)` helpers once the user submits input.
+  init(viewModel: ChatViewModel) {
+    self.viewModel = viewModel
+    super.init()
+  }
+
+  override func bind(to session: ConvoSession) {
+    super.bind(to: session)
+
+    session.messagesPublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] messages in
+        self?.viewModel.messages = messages
+        self?.dedupeStreamingPreviews(with: messages)
+      }
+      .store(in: &cancellables)
+
+    session.streamingUpdatesPublisher()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] chunk in
+        self?.handleStreamingChunk(chunk)
+      }
+      .store(in: &cancellables)
+  }
+
+  override func handleStreamingChunk(_ chunk: InboundStreamChunk) {
+    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
+    let delta = String(decoding: chunk.data, as: UTF8.self)
+    previews[id, default: ""] += delta
+
+    viewModel.showPreview(id: id, text: previews[id] ?? "")
+
+    if chunk.isFinal {
+      awaitingFinalMessage.insert(id)
+    }
+  }
+
+  override func handleMessages(_ messages: [NeuronMessage]) {
+    super.handleMessages(messages)
+
+    for message in messages {
+      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
+        previews.removeValue(forKey: message.id)
+        viewModel.clearPreview(id: message.id)
+      }
+    }
+  }
+
+  func send(text: String, via session: ConvoSession) {
+    Task { try await session.sendMessage(text) }
+  }
+}
+```
+
+### 9.2 Session-centric binding (recommended)
+
+```swift
+let convo = runtime.openConversation(agentId: UUID())
+let adapter = MyConvoAdapter(viewModel: chatViewModel)
+
+convo.bindUI(adapter)
+
+// Later: unbind when the UI is no longer active
+convo.unbindUI()
+
+convo.close()
+```
+
+### 9.3 Multiple sessions example
+
+```swift
+let supportConvo = runtime.openConversation(agentId: UUID())
+let salesConvo = runtime.openConversation(agentId: UUID())
+
+supportConvo.bindUI(supportAdapter)
+salesConvo.bindUI(salesAdapter)
+
+supportConvo.close()
+salesConvo.close()
+```
+
+### 9.4 Message model: `NeuronMessage`
+
+- `content` — Primary text payload (`wire.text ?? wire.content ?? ""`). When empty, rely on `attachments` or `components`.
+- `sender` — `.user`, `.agent`, `.system`, or `.tool` for styling and attribution.
+- `attachments` — Array containing `displayName`, `mimeType`, optional `url`, optional inline `dataBase64`, plus custom `meta`.
+- `components` — Structured UI blocks described by `type` / `variant` with optional `payload`.
+- `metadata` — Optional key/value hints (intent, topic, etc.).
+- `timestamp` / `id` — Stable values for ordering, deduplication, and persistence.
+
+### 9.5 Streaming APIs
+
+- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` — Default bind uses delta mode with an initial full snapshot (`isDelta: true, initialSnapshot: .full`). Pass `isDelta: false` if you need the full history on every emission.
+- `messagesSnapshot(sessionId:limit:before:)` — One-shot pagination for list previews or loading earlier history.
+- `streamingUpdatesPublisher(sessionId:)` — Emits `InboundStreamChunk` values so the UI can render typing indicators before the final `NeuronMessage` persists.
+
+### 9.6 Binding example
+
+```swift
+import Combine
+
+final class MyConvoAdapter {
+  private var cancellables = Set<AnyCancellable>()
+  private var previews: [UUID: String] = [:]
+
+  func bind(session: ConvoSession) {
+    session.messagesPublisher
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] messages in
+        self?.render(messages: messages)
+        self?.dedupeStreamingPreviews(with: messages)
+      }
+      .store(in: &cancellables)
+
+    session.streamingUpdatesPublisher()
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] chunk in
+        self?.handleStreaming(chunk)
+      }
+      .store(in: &cancellables)
+  }
+
+  func send(text: String, session: ConvoSession) {
+    Task { try await session.sendMessage(text) }
+  }
+
+  private func render(messages: [NeuronMessage]) {
+    // Update your view model or UI here
+  }
+
+  private func handleStreaming(_ chunk: InboundStreamChunk) {
+    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
+    let delta = String(decoding: chunk.data, as: UTF8.self)
+    previews[id, default: ""] += delta
+
+    if chunk.isFinal {
+      awaitingFinalMessage.insert(id)
+    }
+  }
+
+  private func dedupeStreamingPreviews(with messages: [NeuronMessage]) {
+    for message in messages {
+      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
+        previews.removeValue(forKey: message.id)
+        // Clear the preview bubble from your UI
+      }
+    }
+  }
+}
+```
 
 Examples:
 
@@ -489,19 +668,21 @@ Examples:
 
 ---
 
-Context is one of the most important designs of the NeuronKit SDK. It continuously collects relevant mobile device and in‑app signals to accompany user intent so your agent can understand situation, safety posture, and preferences. This is part of modern context engineering for agent systems.
+## 10. Context (overview)
 
-NeuronKit enriches each outbound message with device and app context to help your PDP make better decisions. Highlights:
+Context is one of the most important designs of the NeuronKit SDK. It continuously collects relevant mobile device and in-app signals so your agent can understand the current situation, safety posture, and preferences—this is modern context engineering.
 
-- Register Context Providers when creating `NeuronKitConfig` to emit values on send, by TTL, or on app foreground.
-- Context is delivered via a typed `DeviceContext` plus an `additionalContext: [String: String]` map for coarse signals.
+NeuronKit enriches each outbound message with device and app context to help your PDP make better decisions:
+
+- Register context providers when creating `NeuronKitConfig` to emit values on send, by TTL, or on app foreground.
+- Context is delivered via a strongly typed `DeviceContext` plus an `additionalContext: [String: String]` map for coarse signals.
 - Providers never trigger OS permission dialogs; request permissions in your app before registering sensitive providers.
 
 Quick links:
 
-- [Full guide: `Device-side Context`](docs/context.md)
+- [Device-side Context guide](docs/context.md)
 
-These documents include update policies, quick-start samples, the full provider reference (standard / advanced / inferred), and downstream parsing guidance.
+The guide covers update policies, quick-start samples, the full provider reference (standard / advanced / inferred), and downstream parsing guidance.
 
 ---
 
