@@ -238,7 +238,7 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 当你希望 NeuronKit 通过自定义传输层通信（WebSocket、HTTP 轮询、SSE、gRPC、蓝牙等）时，需要实现 `NetworkAdapter` 协议。适配器位于 NeuronKit 运行时与服务器之间：
 
 1. 运行时在有出站 JSON 数据时调用 `send(_:)`。适配器负责把字节写入具体传输层（socket、HTTP、gRPC 等）。
-2. 服务器返回响应或流式 token 时，适配器把字节交回 NeuronKit。
+2. 服务器返回实时预览片段或最终响应时，适配器把字节交回 NeuronKit。
 3. 适配器汇报连接状态，便于运行时和 UI 做重试、提示。
 
 ### 7.1 生命周期与必备接口
@@ -262,7 +262,7 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 ### 7.2 入站数据回流
 
 - **完整响应**：调用 `handleInboundData(_:)` 或 `inboundDataHandler?(payload)`，NeuronKit 会解析、存储并通知 UI。
-- **流式响应**：每个 token 构造 `InboundStreamChunk`，通过 `inboundPartialDataHandler?(chunk)` 发送，`sequence` 保证顺序，`messageId` 用于最终去重。最后再调用 `handleInboundData(_:)` 将完整结果入库。
+- **流式响应**：为每个实时预览片段构造 `InboundStreamChunk`，通过 `inboundPartialDataHandler?(chunk)` 发送，`sequence` 保证顺序，`messageId` 用于最终去重。最后再调用 `handleInboundData(_:)` 将完整结果入库。
 - **状态更新**：在握手成功、重连、断线、异常时调用 `onStateChange?`。
 
 ### 7.3 出站请求发送
@@ -277,14 +277,14 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 ### 7.4 流式注意事项
 
 - 与后端约定“预览”和“最终”的标记方式（参见下文“服务端约定”）。
-- 使用 `InboundStreamChunk` 传递预览 token，`sequence`/`messageId` 有助于 UI 合并、去重。
+- 使用 `InboundStreamChunk` 传递实时预览片段，`sequence`/`messageId` 有助于 UI 合并、去重。
 - 每条消息仅调用一次 `handleInboundData(_:)`，通常在最终帧。
 - 流结束时清理适配器缓存，避免内存泄露。
 
 ### 7.5 数据流示意
 
 ```plaintext
-NeuronKit send(_:) → 适配器写入传输层 → 服务端返回预览 → inboundPartialDataHandler 发送 token → UI 展示预览
+NeuronKit send(_:) → 适配器写入传输层 → 服务端返回预览 → inboundPartialDataHandler 推送预览片段 → UI 展示预览
 → 服务端返回最终帧 → 适配器调用 handleInboundData(_) → NeuronKit 持久化并通知 UI
 ```
 
@@ -297,10 +297,10 @@ NeuronKit send(_:) → 适配器写入传输层 → 服务端返回预览 → in
 
 ### 流式适配器与 SSE 蓝图
 
-- **预览 token** —— `examples/custom/` 目录下的 loopback、mock、WebSocket、HTTP 适配器已经演示如何构造 `InboundStreamChunk` 并通过 `inboundPartialDataHandler` 推送流式文本。可以对照这些文件了解拆分长度、metadata 标记（如 `transport` / `kind`）以及时间节奏。仓库还提供了可直接拷贝的模板：`docs/templates/TemplateSSEAdapter.swift`。
-- **HTTP 轮询** —— `MyURLSessionHTTPAdapter` 能解析两种响应：预览 token（`MockPreviewEnvelope`）以及完整缓冲结果（`MockStreamEnvelope`），在最终帧到达时调用 `handleInboundData(_:)`。
+- **实时预览片段** —— `examples/custom/` 目录下的 loopback、mock、WebSocket、HTTP 适配器已经演示如何构造 `InboundStreamChunk` 并通过 `inboundPartialDataHandler` 推送流式文本。可以对照这些文件了解拆分长度、metadata 标记（如 `transport` / `kind`）以及时间节奏。仓库还提供了可直接拷贝的模板：`docs/templates/TemplateSSEAdapter.swift`。
+- **HTTP 轮询** —— `MyURLSessionHTTPAdapter` 能解析两种响应：实时预览片段（`MockPreviewEnvelope`）以及完整缓冲结果（`MockStreamEnvelope`），在最终帧到达时调用 `handleInboundData(_:)`。
 - **Server-Sent Events (SSE)** —— 可以借助 `URLSessionDataDelegate` 收集增量帧，先行发出预览 chunk，再在最终帧到达时转交给 `handleInboundData(_:)`：
-- **服务端约定** —— 请与你的后端明确“预览帧”和“最终帧”的标记方式。例如 SSE 可以通过 `event: preview` 多次推送 token，最后发送 `event: complete` 或在数据里带上 `is_final`，适配器需据此填充 `InboundStreamChunk.isFinal` 并仅在最终帧调用一次 `handleInboundData(_:)`。
+- **服务端约定** —— 请与你的后端明确“预览帧”和“最终帧”的标记方式。例如 SSE 可以通过 `event: preview` 多次推送实时预览片段，最后发送 `event: complete` 或在数据里带上 `is_final`，适配器需据此填充 `InboundStreamChunk.isFinal` 并仅在最终帧调用一次 `handleInboundData(_:)`。
 
 ```swift
 final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
@@ -372,13 +372,13 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - 将用户输入转交给运行时（典型集成中不要直接调用 `sendMessage`）。
 - 渲染智能体消息与系统提醒。
 - PDP 返回需要显式同意时，展示同意 UI。
-- 接收流式预览 chunk（token-by-token）以及最终持久化消息。
+- 接收流式预览 chunk（逐片段 streaming）以及最终持久化消息。
 - `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览积累、去重以及同意处理样板代码。
 
 - **流式预览如何处理**  
   重写 `handleStreamingChunk(_:)`，按照 `chunk.messageId`（或 `streamId`）累计文本，并在 UI 中展示“正在输入”效果。若 `chunk.isFinal == true`，需记录该消息以便最终消息落库时清除预览。
 - **为何需要去重**  
-  例如服务端先逐 token 推送“好的，我来查一下……”，随后将同一句完整文本作为最终 `NeuronMessage` 返回。如果不清除预览，用户会看到两条内容相同的气泡（预览 + 持久化）。追踪 `messageId`/`streamId` 并在最终消息到达后清除即可避免重复。
+  例如服务端先逐段推送“好的，我来查一下……”的实时预览片段，随后将同一句完整文本作为最终 `NeuronMessage` 返回。如果不清除预览，用户会看到两条内容相同的气泡（预览 + 持久化）。追踪 `messageId`/`streamId` 并在最终消息到达后清除即可避免重复。
 - **完成时如何合并**  
   在 `handleMessages(_:)` 中对比最新的 `NeuronMessage` 与预览文本，若内容一致则移除预览或合并内容，确保界面只保留最终气泡。
 - **同意与系统事件**  
@@ -450,7 +450,7 @@ final class MyConvoAdapter: BaseConvoUIAdapter {
 }
 ```
 
-### 9.2 会话绑定（推荐）
+### 9.2 会话绑定
 
 ```swift
 let convo = runtime.openConversation(agentId: UUID())
@@ -551,7 +551,7 @@ final class MyConvoAdapter {
 
 > 提示：在 SwiftUI 中可将消息存入 `@Published` 数组，并通过 `ForEach(messages)` 绑定；稳定的 `id` 能确保快速流式更新下依然高效 diff。将预览文本单独存储，待最终 `NeuronMessage` 抵达后清除或合并，以避免重复气泡，并在预览阶段记录需要等待的 `messageId`，以便达到去重效果。
 
-### 会话中心绑定（推荐）
+### 以会话为中心的UI绑定
 
 新方法允许你动态地将 UI 适配器绑定/解绑到特定会话：
 
