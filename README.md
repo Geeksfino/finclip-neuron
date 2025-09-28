@@ -349,6 +349,7 @@ See examples:
 - **Preview tokens** – The loopback, mock, WebSocket, and URLSession adapters in `examples/custom/` now emit text previews by constructing `InboundStreamChunk` values and forwarding them through `inboundPartialDataHandler`. Review those files for chunk sizing, metadata, and timing patterns. A ready-to-copy template lives in `docs/templates/TemplateSSEAdapter.swift`.
 - **HTTP polling** – `MyURLSessionHTTPAdapter` shows how to decode either preview tokens (`MockPreviewEnvelope`) or fully buffered results (`MockStreamEnvelope`) before calling `handleInboundData(_:)`.
 - **Server-Sent Events (SSE)** – Use `URLSessionDataDelegate` to collect frames, emit preview chunks, and forward the final payload:
+- **Server contract** – Coordinate with your backend on how each frame signals “preview” versus “final.” For example, an SSE stream might send `event: preview` chunks and an `event: complete` frame, or include an `is_final` flag. Your adapter is responsible for mapping that marker to `InboundStreamChunk.isFinal` and calling `handleInboundData(_:)` exactly once per completed message.
 
 ```swift
 final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {

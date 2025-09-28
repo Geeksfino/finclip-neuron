@@ -260,6 +260,7 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 - **预览 token** —— `examples/custom/` 目录下的 loopback、mock、WebSocket、HTTP 适配器已经演示如何构造 `InboundStreamChunk` 并通过 `inboundPartialDataHandler` 推送流式文本。可以对照这些文件了解拆分长度、metadata 标记（如 `transport` / `kind`）以及时间节奏。仓库还提供了可直接拷贝的模板：`docs/templates/TemplateSSEAdapter.swift`。
 - **HTTP 轮询** —— `MyURLSessionHTTPAdapter` 能解析两种响应：预览 token（`MockPreviewEnvelope`）以及完整缓冲结果（`MockStreamEnvelope`），在最终帧到达时调用 `handleInboundData(_:)`。
 - **Server-Sent Events (SSE)** —— 可以借助 `URLSessionDataDelegate` 收集增量帧，先行发出预览 chunk，再在最终帧到达时转交给 `handleInboundData(_:)`：
+- **服务端约定** —— 请与你的后端明确“预览帧”和“最终帧”的标记方式。例如 SSE 可以通过 `event: preview` 多次推送 token，最后发送 `event: complete` 或在数据里带上 `is_final`，适配器需据此填充 `InboundStreamChunk.isFinal` 并仅在最终帧调用一次 `handleInboundData(_:)`。
 
 ```swift
 final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
