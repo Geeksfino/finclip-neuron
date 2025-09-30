@@ -16,6 +16,7 @@ FinClip Neuron 帮助你在移动端、桌面端、物联网设备上安全地�
 
 - 推荐路径：
   - `finclip-neuron/examples/custom/` — CLI 快速上手示例，可直接 `swift run` 运行。
+- 详细开发指南请参阅 [`docs/developer-guide.zh.md`](docs/developer-guide.zh.md)。
 
 ---
 
@@ -176,11 +177,11 @@ let olderPage = try? runtime.messagesSnapshot(sessionId: attached.sessionId, lim
 
 ---
 
-## 5. 沙箱用法：类型化 API、Manifest、PDP 流程
+## 5. 沙箱用法（类型化 API、Manifest、PDP）
 
 - **类型化 API（FeatureArgsSchema）**
-  - 为每个 Feature 定义参数 schema（必填/可选/约束）。
-  - 运行时在执行前会校验参数，确保与 schema 匹配。
+  - 为每个 Feature 定义必填/可选参数与约束。
+  - 运行时会在调用前校验智能体提供的参数是否符合 Schema。
 
 ```swift
 let exportFeature = SandboxSDK.Feature(
@@ -202,13 +203,13 @@ let exportFeature = SandboxSDK.Feature(
 ```
 
 - **Manifest**
-  - 可在启动时一次性应用特性清单（包含 Feature、schema 与 capabilities）。
+  - 可在启动时批量加载 Feature、Schema 与 Capability。
 
-- **策略与 PDP**
-  - 为每个 Feature 设置策略（敏感度、频率限制、是否需要用户同意/在场等）：
+- **策略与 PDP 流程**
+  - 通过 `sandbox.setPolicy` 为每个 Feature 设置敏感级别、频率限制与显式同意要求：
 
 ```swift
-_ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
+_ = sandbox.setPolicy("open_camera", SandboxSDK.Policy(
   requiresUserPresent: true,
   requiresExplicitConsent: true,
   sensitivity: .medium,
@@ -216,132 +217,14 @@ _ = runtime.sandbox.setPolicy("open_camera", SandboxSDK.Policy(
 ))
 ```
 
-- **上下文参与评估**
-  - 消息携带设备上下文（时区、设备类型等）与业务上下文（当前页面/场景），PDP 会纳入评估。
+- **评估时的上下文**
+  - 随每条消息附带设备上下文（时区、设备类型等）与应用上下文（当前路由、业务场景）。PDP 会在策略判定时一并考虑。
+
+关于已支持的 Feature、Capability、Primitive，请参阅[支持的特性、能力与基础操作](docs/developer-guide.zh.md#sandbox--security)。
 
 ---
 
-## 6. 支持的 Features / Capabilities / Primitives
-
-示例中包含以下常见 Feature：
-
-- `open_camera`, `open_payment`, `access_contacts`, `get_location`, `send_notification`, `export_report`, `miniapp_order_detail`。
-- 能力示例：UI 访问、设备传感器、网络、媒体等。
-- 常见 Primitive：`MobileUI(page:..., component:...)`，可路由到原生或 MiniApp 流程。
-
-完整的概念模型与可扩展性，请参考 `neuronkit/docs/spec.md`。
-
----
-
-## 7. 网络适配器（自定义实现）
-
-当你希望 NeuronKit 通过自定义传输层通信（WebSocket、HTTP 轮询、SSE、gRPC、蓝牙等）时，需要实现 `NetworkAdapter` 协议。适配器位于 NeuronKit 运行时与服务器之间：
-
-1. 运行时在有出站 JSON 数据时调用 `send(_:)`。适配器负责把字节写入具体传输层（socket、HTTP、gRPC 等）。
-2. 服务器返回实时预览片段或最终响应时，适配器把字节交回 NeuronKit。
-3. 适配器汇报连接状态，便于运行时和 UI 做重试、提示。
-
-### 7.1 生命周期与必备接口
-
-- **属性**
-  - `onStateChange: ((NetworkState) -> Void)?` —— 连接状态变化时调用（连接中/已连接/重连/断开/错误）。
-  - `inboundDataHandler: ((Data) -> Void)?` —— 收到完整响应（常为最终帧）时调用，让 NeuronKit 持久化并分发。
-  - `onOutboundData: ((Data) -> Void)?` —— 可选，用于日志或链路追踪。避免在回调里再次调用 `send(_:)` 以免重入。
-
-- **Publishers**
-  - `inbound: AnyPublisher<Data, Never>` —— `BaseNetworkAdapter` 已帮忙实现，多数适配器直接用 `inboundDataHandler` 即可。
-  - `state: AnyPublisher<NetworkState, Never>` —— 状态流，可供 UI 订阅。
-
-- **方法**
-  - `start()` —— 建立连接或开启轮询，设置状态为 `.connecting`/`.connected`。
-  - `stop()` —— 关闭连接，释放资源，发出 `.disconnected`。
-  - `send(_ data: Data)` —— 写出字节；若需要确认或排队，在此处理。
-
-建议继承 `BaseNetworkAdapter`，它提供 `inboundSubject`、publishers 等基础能力。
-
-### 7.2 入站数据回流
-
-- **完整响应**：调用 `handleInboundData(_:)` 或 `inboundDataHandler?(payload)`，NeuronKit 会解析、存储并通知 UI。
-- **流式响应**：为每个实时预览片段构造 `InboundStreamChunk`，通过 `inboundPartialDataHandler?(chunk)` 发送，`sequence` 保证顺序，`messageId` 用于最终去重。最后再调用 `handleInboundData(_:)` 将完整结果入库。
-- **状态更新**：在握手成功、重连、断线、异常时调用 `onStateChange?`。
-
-### 7.3 出站请求发送
-
-- **WebSocket** —— 发送文本或二进制帧。
-- **HTTP** —— 将数据放入请求体；若需流式可用长轮询或 SSE。
-- **SSE/长轮询** —— `send(_:)` 触发 HTTP 请求，等待服务端推送。
-- **自定义协议** —— 如蓝牙、gRPC，序列化 JSON 并调用相应 SDK。
-
-如需确认/节流，可在 `send(_:)` 中排队或等待 ACK。
-
-### 7.4 流式注意事项
-
-- 与后端约定“预览”和“最终”的标记方式（参见下文“服务端约定”）。
-- 使用 `InboundStreamChunk` 传递实时预览片段，`sequence`/`messageId` 有助于 UI 合并、去重。
-- 每条消息仅调用一次 `handleInboundData(_:)`，通常在最终帧。
-- 流结束时清理适配器缓存，避免内存泄露。
-
-### 7.5 数据流示意
-
-```plaintext
-NeuronKit send(_:) → 适配器写入传输层 → 服务端返回预览 → inboundPartialDataHandler 推送预览片段 → UI 展示预览
-→ 服务端返回最终帧 → 适配器调用 handleInboundData(_) → NeuronKit 持久化并通知 UI
-```
-
-### 7.6 参考实现
-
-- `examples/custom/Sources/custom/adapters/WebSocketNetworkAdapter.swift`
-- `examples/custom/Sources/custom/adapters/URLSessionHTTPAdapter.swift`
-- `examples/custom/Sources/custom/adapters/LoopbackNetworkAdapter.swift`
-- 模板：`docs/templates/TemplateSSEAdapter.swift`
-
-### 流式适配器与 SSE 蓝图
-
-- **实时预览片段** —— `examples/custom/` 目录下的 loopback、mock、WebSocket、HTTP 适配器已经演示如何构造 `InboundStreamChunk` 并通过 `inboundPartialDataHandler` 推送流式文本。可以对照这些文件了解拆分长度、metadata 标记（如 `transport` / `kind`）以及时间节奏。仓库还提供了可直接拷贝的模板：`docs/templates/TemplateSSEAdapter.swift`。
-- **HTTP 轮询** —— `MyURLSessionHTTPAdapter` 能解析两种响应：实时预览片段（`MockPreviewEnvelope`）以及完整缓冲结果（`MockStreamEnvelope`），在最终帧到达时调用 `handleInboundData(_:)`。
-- **Server-Sent Events (SSE)** —— 可以借助 `URLSessionDataDelegate` 收集增量帧，先行发出预览 chunk，再在最终帧到达时转交给 `handleInboundData(_:)`：
-- **服务端约定** —— 请与你的后端明确“预览帧”和“最终帧”的标记方式。例如 SSE 可以通过 `event: preview` 多次推送实时预览片段，最后发送 `event: complete` 或在数据里带上 `is_final`，适配器需据此填充 `InboundStreamChunk.isFinal` 并仅在最终帧调用一次 `handleInboundData(_:)`。
-
-```swift
-final class SSEAdapter: BaseNetworkAdapter, URLSessionDataDelegate {
-  private let url: URL
-  private lazy var session = URLSession(configuration: .default,
-                                        delegate: self,
-                                        delegateQueue: nil)
-  private var task: URLSessionDataTask?
-  private var buffer = Data()
-
-  override func start() {
-    updateState(.connecting)
-    task = session.dataTask(with: url)
-    task?.resume()
-  }
-
-  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-    buffer.append(data)
-
-    while let range = buffer.range(of: "\n\n".data(using: .utf8)!) {
-      let frame = buffer.subdata(in: 0..<range.lowerBound)
-      buffer.removeSubrange(0..<range.upperBound)
-
-      guard let parsed = SSEFrame(frame) else { continue }
-
-      switch parsed.kind {
-      case .preview(let chunk):
-        inboundPartialDataHandler?(chunk)
-      case .final(let payload):
-        handleInboundData(payload)
-      }
-    }
-  }
-}
-```
-
-其中 `SSEFrame` 是一个轻量辅助结构，用来解析 `id:`、`event:`、`data:` 字段，并在 preview 阶段把文本拆成 `InboundStreamChunk`，最终帧则还原为完整 `Data`。可结合 loopback 适配器中的拆分工具与 metadata 约定来实现生产级 SSE 适配器。
-
----
-
-## 8. 存储配置（持久化）
+## 6. 存储配置（持久化）
 
 NeuronKit 使用本地消息存储保存会话历史，默认“持久化”开启。可在创建 `NeuronKitConfig` 时配置：
 
@@ -362,10 +245,7 @@ let inMemory = NeuronKitConfig(
 )
 ```
 
-- 使用发布者 `runtime.messagesPublisher(sessionId:)`（或 `convo.messagesPublisher`）获取历史+增量更新。
-- 使用 `runtime.messagesSnapshot(sessionId:limit:before:)` 做分页或列表预览。
-
-## 9. ConvoUI 适配器（自定义实现）
+## 9. ConvoUI 适配器
 
 ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 
@@ -373,7 +253,7 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - 渲染智能体消息与系统提醒。
 - PDP 返回需要显式同意时，展示同意 UI。
 - 接收流式预览 chunk（逐片段 streaming）以及最终持久化消息。
-- `docs/templates/TemplateConvoUIAdapter.swift` 提供了一个可直接复制的子类，已经实现了流式预览积累、去重以及同意处理样板代码。
+- [`docs/templates/TemplateConvoUIAdapter.swift`](docs/templates/TemplateConvoUIAdapter.swift) 提供了一个可直接复制的子类，已经实现了流式预览积累、去重以及同意处理样板代码。
 
 - **流式预览如何处理**  
   重写 `handleStreamingChunk(_:)`，按照 `chunk.messageId`（或 `streamId`）累计文本，并在 UI 中展示“正在输入”效果。若 `chunk.isFinal == true`，需记录该消息以便最终消息落库时清除预览。
@@ -386,217 +266,9 @@ ConvoUI 适配器负责将你的 UI 与 NeuronKit 对接：
 - **发送出站消息**  
   调用 `sendMessage(_:)` 或 `sendMessage(_:context:)` 将用户输入传回 NeuronKit。
 
-### 9.1 流式预览示例适配器
-
-```swift
-import Combine
-
-final class MyConvoAdapter: BaseConvoUIAdapter {
-  private let viewModel: ChatViewModel
-  private var cancellables = Set<AnyCancellable>()
-  private var previews: [UUID: String] = [:]
-  private var awaitingFinalMessage: Set<UUID> = []
-
-  init(viewModel: ChatViewModel) {
-    self.viewModel = viewModel
-    super.init()
-  }
-
-  override func bind(to session: ConvoSession) {
-    super.bind(to: session)
-
-    session.messagesPublisher
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] messages in
-        self?.viewModel.messages = messages
-        self?.dedupeStreamingPreviews(with: messages)
-      }
-      .store(in: &cancellables)
-
-    session.streamingUpdatesPublisher()
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] chunk in
-        self?.handleStreamingChunk(chunk)
-      }
-      .store(in: &cancellables)
-  }
-
-  override func handleStreamingChunk(_ chunk: InboundStreamChunk) {
-    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
-    let delta = String(decoding: chunk.data, as: UTF8.self)
-    previews[id, default: ""] += delta
-
-    viewModel.showPreview(id: id, text: previews[id] ?? "")
-
-    if chunk.isFinal {
-      awaitingFinalMessage.insert(id)
-    }
-  }
-
-  override func handleMessages(_ messages: [NeuronMessage]) {
-    super.handleMessages(messages)
-
-    for message in messages {
-      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
-        previews.removeValue(forKey: message.id)
-        viewModel.clearPreview(id: message.id)
-      }
-    }
-  }
-
-  func send(text: String, via session: ConvoSession) {
-    Task { try await session.sendMessage(text) }
-  }
-}
-```
-
-### 9.2 会话绑定
-
-```swift
-let convo = runtime.openConversation(agentId: UUID())
-let adapter = MyConvoAdapter(viewModel: chatViewModel)
-
-convo.bindUI(adapter)
-
-// 稍后：当 UI 不再活跃时解绑
-convo.unbindUI()
-
-convo.close()
-```
-
-### 9.3 多会话示例
-
-```swift
-let supportConvo = runtime.openConversation(agentId: UUID())
-let salesConvo = runtime.openConversation(agentId: UUID())
-
-supportConvo.bindUI(supportAdapter)
-salesConvo.bindUI(salesAdapter)
-
-supportConvo.close()
-salesConvo.close()
-```
-
-### 9.4 消息模型：`NeuronMessage`
-
-- `content` —— 主文本内容（`wire.text ?? wire.content ?? ""`）；若为空，请结合 `attachments` 或 `components` 渲染。
-- `sender` —— `.user` / `.agent` / `.system` / `.tool`，用于区分气泡样式与归属。
-- `attachments` —— 含 `displayName`、`mimeType`、可选 `url`、可选内联 `dataBase64` 与自定义 `meta`。
-- `components` —— 结构化 UI 组件，由 `type` / `variant` 与可选 `payload` 描述，可映射到自定义视图。
-- `metadata` —— 可选键值提示（如 intent、topic）。
-- `timestamp` / `id` —— 稳定字段，便于排序、去重与持久化，适配 diffable 数据源。
-
-### 9.5 流式 API
-
-- `messagesPublisher(sessionId:isDelta:initialSnapshot:)` —— `ConvoSession.bindUI` 默认采用“增量 + 初始快照”（`isDelta: true, initialSnapshot: .full`）。若需每次完整历史，可传 `isDelta: false`。
-- `messagesSnapshot(sessionId:limit:before:)` —— 一次性分页快照，适合列表首屏或加载更早的历史消息。
-- `streamingUpdatesPublisher(sessionId:)` —— 提供 `InboundStreamChunk` 流式消息，让 UI 在最终 `NeuronMessage` 入库前展示预览。
-
-### 9.6 典型绑定示例
-
-```swift
-import Combine
-
-final class MyConvoAdapter {
-  private var cancellables = Set<AnyCancellable>()
-  private var previews: [UUID: String] = [:]
-  private var awaitingFinalMessage: Set<UUID> = []
-
-  func bind(session: ConvoSession) {
-    session.messagesPublisher
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] messages in
-        self?.render(messages: messages)
-        self?.dedupeStreamingPreviews(with: messages)
-      }
-      .store(in: &cancellables)
-
-    session.streamingUpdatesPublisher()
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] chunk in
-        self?.handleStreaming(chunk)
-      }
-      .store(in: &cancellables)
-  }
-
-  func send(text: String, session: ConvoSession) {
-    Task { try await session.sendMessage(text) }
-  }
-
-  private func render(messages: [NeuronMessage]) {
-    // 在此更新你的视图模型或界面
-  }
-
-  private func handleStreaming(_ chunk: InboundStreamChunk) {
-    let id = chunk.messageId ?? UUID(uuidString: chunk.streamId) ?? UUID()
-    let delta = String(decoding: chunk.data, as: UTF8.self)
-    previews[id, default: ""] += delta
-    // 可在此把 previews[id] 绑定到“智能体正在输入”气泡
-    if chunk.isFinal {
-      awaitingFinalMessage.insert(id)
-    }
-  }
-
-  private func dedupeStreamingPreviews(with messages: [NeuronMessage]) {
-    for message in messages {
-      if awaitingFinalMessage.remove(message.id) || previews[message.id] != nil {
-        previews.removeValue(forKey: message.id)
-        // 同步清理 UI 上的流式预览
-        // viewModel.clearStreamingMessage(id: message.id)
-      }
-    }
-  }
-}
-```
-
-> 提示：在 SwiftUI 中可将消息存入 `@Published` 数组，并通过 `ForEach(messages)` 绑定；稳定的 `id` 能确保快速流式更新下依然高效 diff。将预览文本单独存储，待最终 `NeuronMessage` 抵达后清除或合并，以避免重复气泡，并在预览阶段记录需要等待的 `messageId`，以便达到去重效果。
-
-### 以会话为中心的UI绑定
-
-新方法允许你动态地将 UI 适配器绑定/解绑到特定会话：
-
-```swift
-// 打开会话
-let convo = runtime.openConversation(agentId: UUID())
-
-// 将 UI 适配器绑定到此特定会话
-let adapter = MyConvoAdapter()
-convo.bindUI(adapter)
-
-// 稍后：当 UI 不再活跃时解绑（如视图消失）
-convo.unbindUI()
-
-// 对话结束时关闭会话
-convo.close()
-```
-
-### 多会话支持
-
-现在可以有多个活跃会话，每个都有不同的 UI 适配器：
-
-```swift
-// 为不同上下文创建会话
-let supportConvo = runtime.openConversation(agentId: UUID())
-let salesConvo = runtime.openConversation(agentId: UUID())
-
-// 将不同适配器绑定到各自会话
-supportConvo.bindUI(supportAdapter)
-salesConvo.bindUI(salesAdapter)
-
-// 稍后：关闭会话
-supportConvo.close()
-salesConvo.close()
-```
-
-示例：
-
-- `examples/custom/Sources/custom/CliConvoAdapter.swift`
-- `examples/custom/Sources/custom/CustomDemoApp.swift`
-- `examples/ios-sample/Sources/App/MultiSessionExample.swift`
-
 ---
 
-## 10. 上下文（概览）
+## 8. 上下文
 
 上下文是 NeuronKit SDK 最重要的设计之一。它持续收集与用户意图相关的移动设备与应用内信号，并随消息一并发送给智能体，帮助其理解当下情境、安全态势与偏好。这属于智能体系统中的“上下文工程”。
 
