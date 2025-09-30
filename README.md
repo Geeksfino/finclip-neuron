@@ -293,6 +293,7 @@ NeuronKit enriches each outbound message with device and app context to help you
 Quick links:
 
 - [Device-side Context guide](docs/context.md)
+- [Developer guide](docs/developer-guide.md)
 
 The guide covers update policies, quick-start samples, the full provider reference (standard / advanced / inferred), and downstream parsing guidance.
 

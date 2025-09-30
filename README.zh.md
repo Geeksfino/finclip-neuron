@@ -281,6 +281,7 @@ NeuronKit 会为每条出站消息自动富集设备与应用上下文，帮助 
 快速链接：
 
 - [设备端的上下文](docs/context.zh.md)
+- [开发指南](docs/developer-guide.zh.md)
   
 上述文档包含刷新策略、快速上手示例、完整的 provider 参考（标准/高级/衍生），以及后端解析指引。
 
