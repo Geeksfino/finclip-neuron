@@ -12,18 +12,18 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v0661965-swift6_2/SandboxSDK.xcframework.zip",
-      checksum: "f0028d026997eb42530295e2b5012d9cb3a94f95bba8ef13f894082bf8e832f3"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vf64da07-swift6_0/SandboxSDK.xcframework.zip",
+      checksum: "ca5db62a860bb421bdefe6ceed26bdb8efa00789f65e838ddd2e3508e277cbbc"
     ),
     .binaryTarget(
       name: "convstorelib",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v32fa11d-swift6_2/convstorelib.xcframework.zip",
-      checksum: "0d8a886f04611805c65884c7348f9eb640c267710a42f33068895a014d5d30fc"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-v1a27ae4-swift6_0/convstorelib.xcframework.zip",
+      checksum: "bdf13010debfd9463d1fd14f32861554f99fb86e503eaac5ea6fe0c962a07d66"
     ),
     .binaryTarget(
       name: "NeuronKit",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-vc62bc4e-swift6_2/NeuronKit.xcframework.zip",
-      checksum: "b22c7e23a88d8db619d7d3191ddfb5838ee67d3787cf949083e3e9c1d296e2ae"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-v1dce083-swift6_0/NeuronKit.xcframework.zip",
+      checksum: "b87dcdf1aa8d4f516fb41a5c0b6c3bd8714d6f9fd8c1b22a9bbe82b1d3df3695"
     )
   ]
 )
