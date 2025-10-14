@@ -1,0 +1,181 @@
+name: Sync deps-bootstrap from main-swift6_0
+
+on:
+  push:
+    branches:
+      - main-swift6_0
+    paths:
+      - 'Package.swift'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-bootstrap:
+    name: Sync deps-bootstrap manifest
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: main-swift6_0
+
+    - name: Extract dependency URLs and checksums from main-swift6_0
+      id: extract
+      run: |
+        # Extract SandboxSDK
+        SDK_URL=$(awk '/name: "SandboxSDK"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        SDK_CHECKSUM=$(awk '/name: "SandboxSDK"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /checksum:/{match($0, /"([^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        
+        # Extract convstorelib
+        CONV_URL=$(awk '/name: "convstorelib"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        CONV_CHECKSUM=$(awk '/name: "convstorelib"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /checksum:/{match($0, /"([^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        
+        # Extract ConvoUI
+        CONVOUI_URL=$(awk '/name: "ConvoUI"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        CONVOUI_CHECKSUM=$(awk '/name: "ConvoUI"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /checksum:/{match($0, /"([^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift)
+        
+        echo "sdk_url=$SDK_URL" >> $GITHUB_OUTPUT
+        echo "sdk_checksum=$SDK_CHECKSUM" >> $GITHUB_OUTPUT
+        echo "conv_url=$CONV_URL" >> $GITHUB_OUTPUT
+        echo "conv_checksum=$CONV_CHECKSUM" >> $GITHUB_OUTPUT
+        echo "convoui_url=$CONVOUI_URL" >> $GITHUB_OUTPUT
+        echo "convoui_checksum=$CONVOUI_CHECKSUM" >> $GITHUB_OUTPUT
+        
+        echo "📦 Extracted dependencies:"
+        echo "  SandboxSDK: $SDK_URL"
+        echo "  convstorelib: $CONV_URL"
+        echo "  ConvoUI: $CONVOUI_URL"
+
+    - name: Check if dependencies changed
+      id: check_changes
+      run: |
+        git fetch origin deps-bootstrap
+        git checkout deps-bootstrap
+        
+        # Extract current values from deps-bootstrap
+        CURRENT_SDK_URL=$(awk '/name: "SandboxSDK"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift || echo "")
+        CURRENT_CONV_URL=$(awk '/name: "convstorelib"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift || echo "")
+        CURRENT_CONVOUI_URL=$(awk '/name: "ConvoUI"/{flag=1;next} /binaryTarget\(/{if(flag && prev_flag){flag=0}} flag && /url:/{match($0, /"(https?:[^"]+)"/, a); if(a[1] != ""){print a[1]; exit}} {prev_flag=flag}' Package.swift || echo "")
+        
+        # Compare URLs to detect changes
+        if [ "$CURRENT_SDK_URL" != "${{ steps.extract.outputs.sdk_url }}" ] || \
+           [ "$CURRENT_CONV_URL" != "${{ steps.extract.outputs.conv_url }}" ] || \
+           [ "$CURRENT_CONVOUI_URL" != "${{ steps.extract.outputs.convoui_url }}" ]; then
+          echo "needs_update=true" >> $GITHUB_OUTPUT
+          echo "🔄 Dependencies changed, update required"
+        else
+          echo "needs_update=false" >> $GITHUB_OUTPUT
+          echo "✅ Dependencies unchanged, no update needed"
+        fi
+
+    - name: Update deps-bootstrap manifest
+      if: steps.check_changes.outputs.needs_update == 'true'
+      run: |
+        git checkout deps-bootstrap
+        
+        # Rewrite Package.swift with only dependency targets
+        cat > Package.swift << 'EOF'
+        // swift-tools-version: 6.0
+        import PackageDescription
+
+        // Bootstrap manifest for neuronkit builds - contains only dependencies (no NeuronKit)
+        // This prevents circular dependency when neuronkit tries to build using finclip-neuron
+        // Auto-synced from main-swift6_0 by sync-bootstrap workflow
+        let package = Package(
+          name: "finclip-neuron",
+          platforms: [.iOS(.v14), .macOS(.v12)],
+          products: [
+            .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
+            .library(name: "convstorelib", targets: ["convstorelib"]),
+            .library(name: "ConvoUI", targets: ["ConvoUI"])
+          ],
+          targets: [
+            .binaryTarget(
+              name: "SandboxSDK",
+              url: "${{ steps.extract.outputs.sdk_url }}",
+              checksum: "${{ steps.extract.outputs.sdk_checksum }}"
+            ),
+            .binaryTarget(
+              name: "convstorelib",
+              url: "${{ steps.extract.outputs.conv_url }}",
+              checksum: "${{ steps.extract.outputs.conv_checksum }}"
+            ),
+            .binaryTarget(
+              name: "ConvoUI",
+              url: "${{ steps.extract.outputs.convoui_url }}",
+              checksum: "${{ steps.extract.outputs.convoui_checksum }}"
+            )
+          ]
+        )
+        EOF
+        
+        git config user.email "action@github.com"
+        git config user.name "GitHub Action"
+        git add Package.swift
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Sync deps-bootstrap from main-swift6_0
+
+        Updated dependencies:
+        - SandboxSDK: ${{ steps.extract.outputs.sdk_url }}
+        - convstorelib: ${{ steps.extract.outputs.conv_url }}
+        - ConvoUI: ${{ steps.extract.outputs.convoui_url }}"
+          
+          # Retry push with exponential backoff
+          n=0
+          until [ $n -ge 3 ]; do
+            if git push origin deps-bootstrap; then
+              echo "✅ Successfully pushed to deps-bootstrap"
+              break
+            else
+              echo "⚠️ Push failed (attempt $((n+1))). Retrying..."
+              git fetch origin deps-bootstrap
+              git rebase origin/deps-bootstrap || {
+                echo "❌ Rebase failed, aborting"
+                exit 1
+              }
+              n=$((n+1))
+              sleep 2
+            fi
+          done
+          
+          if [ $n -ge 3 ]; then
+            echo "❌ Failed to push after 3 attempts"
+            exit 1
+          fi
+        fi
+
+    - name: Validate deps-bootstrap manifest
+      if: steps.check_changes.outputs.needs_update == 'true'
+      run: |
+        git checkout deps-bootstrap
+        
+        # Ensure NeuronKit is NOT present
+        if grep -q '"NeuronKit"' Package.swift; then
+          echo "❌ ERROR: deps-bootstrap should not contain NeuronKit target"
+          exit 1
+        fi
+        
+        # Ensure all three dependencies are present
+        if ! grep -q '"SandboxSDK"' Package.swift; then
+          echo "❌ ERROR: SandboxSDK missing from deps-bootstrap"
+          exit 1
+        fi
+        
+        if ! grep -q '"convstorelib"' Package.swift; then
+          echo "❌ ERROR: convstorelib missing from deps-bootstrap"
+          exit 1
+        fi
+        
+        if ! grep -q '"ConvoUI"' Package.swift; then
+          echo "❌ ERROR: ConvoUI missing from deps-bootstrap"
+          exit 1
+        fi
+        
+        echo "✅ deps-bootstrap manifest validated successfully"
