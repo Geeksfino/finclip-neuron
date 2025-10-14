@@ -1,10 +1,10 @@
-# FinClip Neuron — Developer Guide
+# FinClip ChatKit — Developer Guide
 
 > 📖 **Language**: [English](README.md) | [中文](README.zh.md)
 
 ## 1. Introduction
 
-FinClip Neuron provides a runtime and SDKs to build agent‑driven experiences safely on mobile, desktop, and IoT devices. It combines:
+FinClip ChatKit provides a runtime and SDKs to build agent‑driven experiences safely on mobile, desktop, and IoT devices. It combines:
 
 - Capability Model‑based sandbox with fine‑grained controls (least privilege, user consent, rate limits) to let cloud agents orchestrate local functions under user permission, enabling Human‑in‑the‑Loop automation.
 - A conversation runtime (NeuronKit) that turns agent proposals into safe, auditable actions.

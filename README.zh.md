@@ -1,10 +1,10 @@
-# FinClip Neuron — 开发者指南（中文）
+# FinClip ChatKit — 开发者指南（中文）
 
  📖 **语言**: [English](README.md) | [中文](README.zh.md)
 
 ## 1. 介绍
 
-FinClip Neuron 帮助你在移动端、桌面端、物联网设备上安全地构建“智能体驱动”的体验。它包含：
+FinClip ChatKit 帮助你在移动端、桌面端、物联网设备上安全地构建“智能体驱动”的体验。它包含：
 
 - 基于能力模型（Capability Model）的安全沙箱（Sandbox），提供最小权限、用户同意、频率限制等精细控制，让云端智能体能在用户许可下，对本地功能进行调度，实现人机协同（Human in the loop）的自动化
 - 会话运行时（NeuronKit），将智能体的提案（指令）安全地转化为可审计的动作
