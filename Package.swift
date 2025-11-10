@@ -9,8 +9,7 @@ let package = Package(
   platforms: [.iOS(.v14), .macOS(.v12)],
   products: [
     .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
-    .library(name: "convstorelib", targets: ["convstorelib"]),
-    .library(name: "ConvoUI", targets: ["ConvoUI"])
+    .library(name: "convstorelib", targets: ["convstorelib"])
   ],
   targets: [
     .binaryTarget(
@@ -22,11 +21,6 @@ let package = Package(
       name: "convstorelib",
       url: "https://github.com/Geeksfino/finclip-neuron/releases/download/conv-vc5cbf1b-swift6_0/convstorelib.xcframework.zip",
       checksum: "55535d11c1f11c93cc01e2ad27794187ebac95f8975ff5bff7082231d056a486"
-    ),
-    .binaryTarget(
-      name: "ConvoUI",
-      url: "",
-      checksum: ""
     )
   ]
 )
