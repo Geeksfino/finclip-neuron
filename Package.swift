@@ -15,8 +15,8 @@ let package = Package(
   targets: [
     .binaryTarget(
       name: "SandboxSDK",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-vb922bba-swift6_0/SandboxSDK.xcframework.zip",
-      checksum: "a988a8e757ed9b5a639bffecf45fc146a0c6ac160552ddc4deaf0bf6766e5964"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/sdk-v4aef8eb-swift6_0/SandboxSDK.xcframework.zip",
+      checksum: "1ec9c58742c018a1e4a356e3d51c8b34717978f5b7e8d2052815ecd172895416"
     ),
     .binaryTarget(
       name: "convstorelib",
