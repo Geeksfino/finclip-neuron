@@ -3,12 +3,14 @@ import PackageDescription
 
 let package = Package(
   name: "finclip-neuron",
-  platforms: [.iOS(.v14), .macOS(.v12)],
+  platforms: [
+    .iOS(.v14)
+  ],
   products: [
     .library(name: "SandboxSDK", targets: ["SandboxSDK"]),
     .library(name: "convstorelib", targets: ["convstorelib"]),
-    .library(name: "ConvoUI", targets: ["ConvoUI"]),
-    .library(name: "NeuronKit", targets: ["NeuronKit"])
+    .library(name: "NeuronKit", targets: ["NeuronKit"]),
+    .library(name: "ConvoUI", targets: ["ConvoUI"])
   ],
   targets: [
     .binaryTarget(
@@ -22,14 +24,14 @@ let package = Package(
       checksum: "3f9e3c3c011089ad208539347a14a6cd1253f77b5d568e291b271c8e8fe01c50"
     ),
     .binaryTarget(
-      name: "ConvoUI",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/convoui-v76f02e0-swift6_0/ConvoUI.xcframework.zip",
-      checksum: "72d3c133befa49eb372f97e471051e324342cbd992b358191ddbc4586b1ad832"
-    ),
-    .binaryTarget(
       name: "NeuronKit",
       url: "https://github.com/Geeksfino/finclip-neuron/releases/download/neuronkit-vded10c4-swift6_0/NeuronKit.xcframework.zip",
       checksum: "60859725f90d39b265a7b94acce4fbd0e424f40428ba05e0d1c7a0cc6ba9c40a"
+    ),
+    .binaryTarget(
+      name: "ConvoUI",
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/convoui-v0a1bba1-swift6_0/ConvoUI.xcframework.zip",
+      checksum: "6d6b4ab2ebe6a15f62617cb6a649d5efde3355ff083f2a98cebf2c09e79fa60b"
     )
   ]
 )
