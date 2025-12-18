@@ -30,8 +30,8 @@ let package = Package(
     ),
     .binaryTarget(
       name: "ConvoUI",
-      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/convoui-v0a1bba1-swift6_0/ConvoUI.xcframework.zip",
-      checksum: "6d6b4ab2ebe6a15f62617cb6a649d5efde3355ff083f2a98cebf2c09e79fa60b"
+      url: "https://github.com/Geeksfino/finclip-neuron/releases/download/convoui-vb845375-swift6_0/ConvoUI.xcframework.zip",
+      checksum: "b3be48c50241b1551c7959e9e838260d388557c25d3dd5e6acecafef5812e34f"
     )
   ]
 )
